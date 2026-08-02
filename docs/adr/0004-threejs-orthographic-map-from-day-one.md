@@ -1,0 +1,3 @@
+# Tier 1 map rendered in Three.js with an orthographic top-down camera from day one
+
+The v1 factory map is 2D in appearance (top-down icons, status tints, alarm badges), which makes Three.js look like overkill — a 2D renderer (Pixi.js, canvas) would be faster to build. We chose Three.js anyway: the v1 feature decision (issue #8) requires a Tier-2-ready payload, and Tier 2 is a 2.5D extruded-blocks view. Rendering Tier 1 as sprites/instanced quads in a real 3D scene with an orthographic camera means the Tier 2 upgrade is a camera/geometry change on the same scene graph, not a renderer rewrite that repays the entire map effort.

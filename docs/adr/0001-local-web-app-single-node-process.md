@@ -1,0 +1,3 @@
+# Local web app in a single Node process, no desktop shell
+
+The control center runs as one Node + TypeScript process (the language is pinned by `@etothepii/satisfactory-file-parser`) serving a dashboard that Aaron opens as an ordinary browser window, fullscreen on the second monitor. We rejected Electron/Tauri: for a single-user tool on one machine, a browser in fullscreen gives the same glanceable surface with zero packaging overhead, and the server doubles as a LAN API host. Save parsing (2–8 MB files) runs in a worker thread so parses never stall the live feed. The server is started manually — no service, scheduler, or process-manager plumbing.

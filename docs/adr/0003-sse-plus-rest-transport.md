@@ -1,0 +1,3 @@
+# SSE + REST for server-to-UI transport, not WebSocket
+
+The dashboard is strictly read-only — the client never sends commands — so the server pushes `WorldState` updates over a single Server-Sent Events stream, with plain REST GETs for on-demand queries (storage search, codex lookups). SSE's browser-native auto-reconnect matters for a dashboard meant to run unattended for days. WebSocket was rejected as buying bidirectionality we have no use for at the cost of hand-rolled reconnect/heartbeat logic; if a future feature needs client-to-server streaming, the transport layer is contained enough to swap.
