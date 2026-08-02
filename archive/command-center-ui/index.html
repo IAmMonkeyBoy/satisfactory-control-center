@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE — Command Center UI concept (wayfinder #10)</title>
+<!--
+  THROWAWAY PROTOTYPE — wayfinder ticket #10 "Command-center UI concept".
+  Three variants of the second-monitor command-center dashboard, switchable via
+  ?variant=A|B|C or the floating bottom bar (or ← / → keys).
+  Standalone file (sub-shape B: no app exists yet — this repo is spec-only).
+  All data is fake and hard-coded. Open this file directly in a browser.
+
+    A — "Map Deck"    : full-bleed top-down map, stats as overlay panels
+    B — "Grid Board"  : uniform mission-control tile grid, no dominant element
+    C — "Status Rail" : alarm-first NOC board, per-circuit rows, map demoted
+-->
+<style>
+  /* dataviz reference palette, dark mode (committed dark — always-on wall display) */
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #222221;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --ring: rgba(255,255,255,0.10);
+    --series-1: #3987e5;  /* blue  */
+    --series-2: #d95926;  /* orange */
+    --series-3: #199e70;  /* aqua  */
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow: hidden;
+  }
+  #app { height: 100vh; }
+  .num { font-variant-numeric: tabular-nums; }
+  h1, h2, h3 { font-weight: 600; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--ring);
+    border-radius: 10px;
+    padding: 12px 14px;
+    min-width: 0; min-height: 0;
+    display: flex; flex-direction: column; gap: 8px;
+    overflow: hidden;
+  }
+  .panel > h2 {
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; flex: none;
+  }
+  .scroll { overflow-y: auto; min-height: 0; }
+  .scroll::-webkit-scrollbar { width: 8px; }
+  .scroll::-webkit-scrollbar-thumb { background: var(--baseline); border-radius: 4px; }
+
+  /* status dot + icon-bearing badge (status color never alone) */
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--ring); color: var(--ink-2); flex: none;
+  }
+  .badge.good     { color: var(--good); }
+  .badge.warning  { color: var(--warning); }
+  .badge.critical { color: var(--critical); }
+  .badge.critical.pulse { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { background: rgba(208,59,59,.18); } }
+
+  /* meter bars */
+  .meter { height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; border-radius: 3px; background: var(--series-1); }
+
+  .kv { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .kv .k { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kv .v { color: var(--ink); font-weight: 600; }
+  .sub { color: var(--muted); font-size: 11px; }
+
+  .codex { cursor: pointer; text-decoration: underline dotted var(--baseline); text-underline-offset: 3px; }
+  .codex:hover { color: var(--series-1); }
+
+  input[type="search"] {
+    width: 100%; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid var(--baseline); background: var(--page); color: var(--ink);
+    font: inherit;
+  }
+  input[type="search"]:focus { outline: 2px solid var(--series-1); outline-offset: -1px; }
+
+  svg text { font-family: inherit; }
+
+  /* ---------- Variant A: Map Deck ---------- */
+  .va { position: relative; height: 100%; }
+  .va .map-bg { position: absolute; inset: 0; }
+  .va .map-bg svg { width: 100%; height: 100%; display: block; }
+  .va .overlay {
+    position: absolute; display: flex; flex-direction: column; gap: 10px;
+  }
+  .va .ol-left  { left: 14px; top: 58px; bottom: 96px; width: 300px; }
+  .va .ol-right { right: 14px; top: 58px; width: 280px; max-height: calc(100% - 154px); }
+  .va .ol-top {
+    left: 14px; right: 14px; top: 10px; flex-direction: row; align-items: center; gap: 14px;
+  }
+  .va .ol-bottom { left: 14px; right: 14px; bottom: 14px; }
+  .va .panel { background: rgba(26,26,25,.92); backdrop-filter: blur(4px); }
+  .va .ticker { display: flex; gap: 18px; overflow-x: hidden; align-items: center; }
+  .va .ticker .cell { display: flex; align-items: center; gap: 8px; flex: none; }
+
+  /* ---------- Variant B: Grid Board ---------- */
+  .vb {
+    height: 100%; padding: 12px; display: grid; gap: 10px;
+    grid-template-columns: repeat(12, 1fr);
+    grid-template-rows: 44px repeat(2, minmax(0, 1fr));
+  }
+  .vb .topbar {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 14px;
+    background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 0 14px;
+  }
+  .vb .power  { grid-column: span 5; }
+  .vb .prod   { grid-column: span 4; }
+  .vb .mile   { grid-column: span 3; }
+  .vb .store  { grid-column: span 4; }
+  .vb .mapT   { grid-column: span 5; }
+  .vb .alarms { grid-column: span 3; }
+  .vb .circuit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1; min-height: 0; }
+  .vb .ctile {
+    border: 1px solid var(--ring); border-radius: 8px; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 4px; background: var(--surface-2);
+  }
+  .vb .ctile .mw { font-size: 22px; font-weight: 700; }
+  .vb .ctile.warning  { border-color: var(--warning); }
+  .vb .ctile.critical { border-color: var(--critical); animation: pulse 1.2s infinite; }
+
+  /* ---------- Variant C: Status Rail ---------- */
+  .vc { height: 100%; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .vc .statusbar {
+    flex: none; border-radius: 10px; padding: 14px 20px;
+    display: flex; align-items: center; gap: 20px;
+    background: var(--surface); border: 1px solid var(--ring);
+  }
+  .vc .statusbar.alarm { border-color: var(--critical); background: rgba(208,59,59,.12); }
+  .vc .statusbar .big { font-size: 24px; font-weight: 700; letter-spacing: .02em; }
+  .vc .body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px; min-height: 0; }
+  .vc .rows { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .vc .rail { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .vc .crow {
+    display: grid; grid-template-columns: 200px 1fr 170px 130px; align-items: center; gap: 16px;
+    background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 10px 16px;
+  }
+  .vc .crow.warning  { border-left: 4px solid var(--warning); }
+  .vc .crow.critical { border-left: 4px solid var(--critical); animation: pulse 1.2s infinite; }
+  .vc .crow .name { font-weight: 600; }
+  .vc .prodlist { flex: 1; }
+
+  /* ---------- codex popover ---------- */
+  #codexPop {
+    position: fixed; z-index: 60; width: 260px; display: none;
+    background: var(--surface-2); border: 1px solid var(--ring); border-radius: 10px;
+    padding: 12px 14px; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  }
+  #codexPop h3 { font-size: 14px; margin-bottom: 4px; }
+  #codexPop .sub { margin-bottom: 8px; }
+  #codexPop .kv { font-size: 12px; padding: 2px 0; }
+
+  /* ---------- prototype switcher (not part of the design) ---------- */
+  #switcher {
+    position: fixed; z-index: 100; bottom: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px;
+    background: #f4f4f0; color: #111; border-radius: 999px; padding: 6px 10px;
+    font-size: 13px; font-weight: 600; box-shadow: 0 4px 18px rgba(0,0,0,.55);
+    border: 2px solid #111;
+  }
+  #switcher button {
+    border: 0; background: #111; color: #f4f4f0; width: 26px; height: 26px;
+    border-radius: 50%; cursor: pointer; font-size: 14px; line-height: 1;
+  }
+  #switcher .lbl { min-width: 170px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="codexPop"></div>
+<div id="switcher">
+  <button id="prevBtn" title="Previous variant (←)">&#8592;</button>
+  <span class="lbl" id="variantLbl"></span>
+  <button id="nextBtn" title="Next variant (→)">&#8594;</button>
+</div>
+
+<script>
+/* ================= fake data (shared by all variants) ================= */
+const DATA = {
+  session: "Phase 4 Main",
+  frmAge: "3 s", saveAge: "42 s",
+  circuits: [
+    { name:"Main Grid",       cap:12400, use:9850, peak:11200, batt:84,  battState:"charging", fuse:"ok",
+      spark:[62,64,66,71,69,73,78,74,80,83,79,81,84,80,79] },
+    { name:"Nuclear Complex", cap:7500,  use:5100, peak:5600,  batt:100, battState:"full", fuse:"ok",
+      spark:[66,67,68,68,69,70,68,69,70,71,70,69,68,68,68] },
+    { name:"Oil Outpost",     cap:2500,  use:2470, peak:2510,  batt:31,  battState:"draining · 18 min left", fuse:"ok",
+      spark:[80,84,88,90,93,95,97,96,98,99,99,98,99,99,99] },
+    { name:"Quartz Field",    cap:900,   use:0,    peak:940,   batt:0,   battState:"empty", fuse:"TRIPPED",
+      spark:[88,90,92,95,99,104,0,0,0,0,0,0,0,0,0] },
+  ],
+  production: [
+    { item:"Heavy Modular Frame", eff:42,  rate:"2.1 / 5.0 per min" },
+    { item:"Motor",               eff:64,  rate:"14.7 / 23.0 per min" },
+    { item:"Reinforced Plate",    eff:87,  rate:"31.3 / 36.0 per min" },
+    { item:"Aluminum Casing",     eff:98,  rate:"117 / 120 per min" },
+    { item:"Iron Plate",          eff:100, rate:"780 / 780 per min" },
+    { item:"Screw",               eff:100, rate:"2 340 / 2 340 per min" },
+    { item:"Computer",            eff:95,  rate:"7.1 / 7.5 per min" },
+  ],
+  storage: [
+    { item:"Iron Plate",       count:12480, trend:"↑" },
+    { item:"Screw",            count:9920,  trend:"↑" },
+    { item:"Rotor",            count:890,   trend:"→" },
+    { item:"Motor",            count:312,   trend:"↓" },
+    { item:"Heavy Modular Frame", count:18, trend:"↓" },
+    { item:"Computer",         count:145,   trend:"↑" },
+    { item:"Aluminum Casing",  count:2210,  trend:"↑" },
+  ],
+  sink: { points: 1284350, coupons: 3, nextIn: "212 350 pts" },
+  milestone: {
+    tier:"Tier 7 — Bauxite Refinement", pct:58,
+    parts:[
+      { item:"Radio Control Unit", have:32,  need:50 },
+      { item:"Modular Engine",     have:110, need:120 },
+      { item:"Versatile Framework",have:480, need:500 },
+      { item:"Motor",              have:96,  need:200 },
+      { item:"Heavy Modular Frame",have:11,  need:40 },
+    ],
+  },
+  alarms: [
+    { sev:"critical", icon:"⚡", msg:"Fuse tripped — Quartz Field",              t:"2 m ago" },
+    { sev:"warning",  icon:"🔋", msg:"Battery draining — Oil Outpost (18 min)",  t:"6 m ago" },
+    { sev:"warning",  icon:"🏭", msg:"Heavy Modular Frame at 42 % efficiency",   t:"31 m ago" },
+  ],
+  crate: { label:"Death crate — 14 items", x: 610, y: 452 },
+  factories: [   /* top-down map blocks: x,y,w,h in a 1000×600 viewBox */
+    { name:"Steel Works",     x: 90,  y: 90,  w:170, h:110, status:"good" },
+    { name:"Motor Assembly",  x:310,  y: 70,  w:140, h: 90, status:"warning" },
+    { name:"Oil Outpost",     x:770,  y:100,  w:150, h:100, status:"warning" },
+    { name:"Quartz Field",    x:800,  y:400,  w:120, h: 90, status:"critical" },
+    { name:"Nuclear Complex", x:120,  y:400,  w:190, h:120, status:"good" },
+    { name:"Aluminum Plant",  x:450,  y:330,  w:160, h:100, status:"good" },
+    { name:"HMF Line",        x:500,  y:120,  w:120, h: 80, status:"warning" },
+  ],
+  rails: [
+    "M175,200 L175,300 L215,400", "M380,160 L380,330 L450,380",
+    "M845,200 L845,400", "M260,145 L310,115", "M610,380 L770,150",
+  ],
+  codex: {
+    "Heavy Modular Frame": { desc:"Late-game structural part.", recipe:"5 Modular Frame + 20 Encased Beam + 5 Steel Pipe + 100 Concrete", building:"Manufacturer", time:"30 s" },
+    "Motor":               { desc:"Rotational power component.", recipe:"2 Rotor + 2 Stator", building:"Assembler", time:"12 s" },
+    "Radio Control Unit":  { desc:"Advanced control component.", recipe:"32 Aluminum Casing + 1 Crystal Oscillator + 1 Computer", building:"Manufacturer", time:"48 s" },
+    "Computer":            { desc:"Logic component.", recipe:"4 Circuit Board + 8 Cable + 16 Plastic", building:"Manufacturer", time:"24 s" },
+  },
+};
+
+/* ================= tiny render helpers ================= */
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const fmt = n => n.toLocaleString("en-US");
+
+function codexName(item) {
+  return `<span class="codex" data-item="${esc(item)}">${esc(item)}</span>`;
+}
+
+function sparkline(values, w = 110, h = 26, color = "var(--series-1)") {
+  const max = Math.max(...values, 1);
+  const pts = values.map((v, i) =>
+    `${(i / (values.length - 1)) * (w - 2) + 1},${h - 1 - (v / max) * (h - 2)}`).join(" ");
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function circuitStatus(c) {
+  if (c.fuse !== "ok") return "critical";
+  if (c.use / c.cap > 0.95 || (c.batt < 40 && /drain/i.test(c.battState))) return "warning";
+  return "good";
+}
+const statusIcon = s => s === "critical" ? "⛔" : s === "warning" ? "⚠" : "✓";
+const statusColor = s => `var(--${s})`;
+
+function fuseBadge(c) {
+  const s = circuitStatus(c);
+  const txt = c.fuse !== "ok" ? "FUSE TRIPPED" : s === "warning" ? "STRAINED" : "STABLE";
+  return `<span class="badge ${s}${s === "critical" ? " pulse" : ""}">${statusIcon(s)} ${txt}</span>`;
+}
+
+function effBar(p) {
+  const s = p.eff < 60 ? "critical" : p.eff < 90 ? "warning" : "good";
+  return `<div>
+    <div class="kv" style="font-size:12px">
+      <span class="k">${codexName(p.item)}</span>
+      <span class="v num" style="color:${statusColor(s)}">${statusIcon(s)} ${p.eff} %</span>
+    </div>
+    <div class="meter" title="${esc(p.rate)}"><i style="width:${p.eff}%;background:${statusColor(s)}"></i></div>
+    <div class="sub num">${esc(p.rate)}</div>
+  </div>`;
+}
+
+/* top-down map as inline SVG; `detail` trims labels at small sizes */
+function mapSVG(detail = true) {
+  const f = DATA.factories.map(f => `
+    <g>
+      <rect x="${f.x}" y="${f.y}" width="${f.w}" height="${f.h}" rx="6"
+        fill="${statusColor(f.status)}" fill-opacity="0.18"
+        stroke="${statusColor(f.status)}" stroke-width="2"/>
+      ${detail ? `<text x="${f.x + 8}" y="${f.y + 20}" fill="var(--ink-2)" font-size="13">${esc(f.name)}</text>
+      <text x="${f.x + 8}" y="${f.y + 38}" font-size="13" fill="${statusColor(f.status)}">${statusIcon(f.status)}</text>` : ""}
+    </g>`).join("");
+  const rails = DATA.rails.map(d =>
+    `<path d="${d}" fill="none" stroke="var(--baseline)" stroke-width="3" stroke-dasharray="1 7" stroke-linecap="round"/>`).join("");
+  const movers = DATA.rails.slice(0, 3).map((d, i) => `
+    <circle r="${detail ? 6 : 4}" fill="var(--series-1)" stroke="var(--page)" stroke-width="2">
+      <animateMotion dur="${7 + i * 3}s" repeatCount="indefinite" path="${d}"/>
+    </circle>`).join("");
+  const crate = detail ? `
+    <g transform="translate(${DATA.crate.x},${DATA.crate.y})">
+      <text x="0" y="4" font-size="18" text-anchor="middle">💀</text>
+      <text x="0" y="24" font-size="11" fill="var(--warning)" text-anchor="middle">☠ ${esc(DATA.crate.label)}</text>
+    </g>` : `<text x="${DATA.crate.x}" y="${DATA.crate.y}" font-size="12" text-anchor="middle">💀</text>`;
+  return `<svg viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid ${detail ? "slice" : "meet"}" style="width:100%;height:100%;display:block">
+    <rect width="1000" height="600" fill="var(--page)"/>
+    <g stroke="var(--grid)" stroke-width="1">${
+      Array.from({length: 19}, (_, i) => `<line x1="${(i+1)*50}" y1="0" x2="${(i+1)*50}" y2="600"/>`).join("")}${
+      Array.from({length: 11}, (_, i) => `<line x1="0" y1="${(i+1)*50}" x2="1000" y2="${(i+1)*50}"/>`).join("")}
+    </g>
+    ${rails}${f}${movers}${crate}
+  </svg>`;
+}
+
+/* shared panel bodies */
+function alarmList(compact = false) {
+  return DATA.alarms.map(a => `
+    <div class="kv" style="align-items:center">
+      <span class="k" style="white-space:normal">
+        <span class="badge ${a.sev}${a.sev === "critical" ? " pulse" : ""}">${a.icon} ${a.sev.toUpperCase()}</span>
+        ${esc(a.msg)}
+      </span>
+      ${compact ? "" : `<span class="sub num" style="flex:none">${a.t}</span>`}
+    </div>`).join("");
+}
+
+function milestoneBody() {
+  const m = DATA.milestone;
+  return `
+    <div class="kv"><span class="k">${esc(m.tier)}</span><span class="v num">${m.pct} %</span></div>
+    <div class="meter"><i style="width:${m.pct}%"></i></div>
+    ${m.parts.map(p => `
+      <div class="kv" style="font-size:12px">
+        <span class="k">${codexName(p.item)}</span>
+        <span class="v num" style="color:${p.have >= p.need ? "var(--good)" : "var(--ink)"}">${p.have} / ${p.need}</span>
+      </div>`).join("")}`;
+}
+
+function storageBody(id) {
+  return `
+    <input type="search" placeholder="Search items… (fake, filters list)" data-storesearch="${id}">
+    <div class="scroll" style="flex:1" data-storelist="${id}">${storageRows("")}</div>
+    <div class="sub num">AWESOME Sink: ${fmt(DATA.sink.points)} pts · ${DATA.sink.coupons} coupons · next in ${DATA.sink.nextIn}</div>`;
+}
+function storageRows(q) {
+  const rows = DATA.storage.filter(s => s.item.toLowerCase().includes(q.toLowerCase()));
+  return rows.length ? rows.map(s => `
+    <div class="kv" style="padding:3px 0">
+      <span class="k">${codexName(s.item)}</span>
+      <span class="v num">${fmt(s.count)} <span class="sub">${s.trend}</span></span>
+    </div>`).join("") : `<div class="sub">no items match</div>`;
+}
+
+/* ================= Variant A — “Map Deck” ================= */
+function VariantA() {
+  return `<div class="va">
+    <div class="map-bg">${mapSVG(true)}</div>
+
+    <div class="overlay ol-top panel" style="flex-direction:row">
+      <strong>${esc(DATA.session)}</strong>
+      <span class="badge good">✓ FRM live · ${DATA.frmAge}</span>
+      <span class="badge">💾 save parsed · ${DATA.saveAge}</span>
+      <span style="flex:1"></span>
+      <span class="badge critical pulse">⛔ 1 CRITICAL</span>
+      <span class="badge warning">⚠ 2 WARNINGS</span>
+      <span class="num sub">14:32:07</span>
+    </div>
+
+    <div class="overlay ol-left">
+      <div class="panel" style="flex:none">
+        <h2>Power</h2>
+        ${DATA.circuits.map(c => `
+          <div>
+            <div class="kv"><span class="k">${esc(c.name)}</span>${fuseBadge(c)}</div>
+            <div class="kv sub num"><span>${fmt(c.use)} / ${fmt(c.cap)} MW</span><span>🔋 ${c.batt} %</span></div>
+            <div class="meter"><i style="width:${Math.min(100, c.use / c.cap * 100)}%;background:${statusColor(circuitStatus(c))}"></i></div>
+          </div>`).join("")}
+      </div>
+      <div class="panel" style="flex:1"><h2>Alarms</h2><div class="scroll" style="flex:1">${alarmList()}</div></div>
+    </div>
+
+    <div class="overlay ol-right">
+      <div class="panel" style="flex:none"><h2>Milestone</h2>${milestoneBody()}</div>
+      <div class="panel" style="flex:1;min-height:120px"><h2>Storage</h2>${storageBody("a")}</div>
+    </div>
+
+    <div class="overlay ol-bottom panel" style="flex-direction:row">
+      <h2 style="align-self:center">Production</h2>
+      <div class="ticker">
+        ${DATA.production.map(p => {
+          const s = p.eff < 60 ? "critical" : p.eff < 90 ? "warning" : "good";
+          return `<span class="cell">
+            <span style="color:${statusColor(s)}">${statusIcon(s)}</span>
+            ${codexName(p.item)}
+            <b class="num" style="color:${statusColor(s)}">${p.eff} %</b>
+          </span>`; }).join("")}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ================= Variant B — “Grid Board” ================= */
+function VariantB() {
+  return `<div class="vb">
+    <div class="topbar">
+      <strong>${esc(DATA.session)}</strong>
+      <span class="badge good">✓ FRM live · ${DATA.frmAge}</span>
+      <span class="badge">💾 save parsed · ${DATA.saveAge}</span>
+      <span style="flex:1"></span>
+      <span class="num sub">14:32:07</span>
+    </div>
+
+    <div class="panel power"><h2>Power circuits</h2>
+      <div class="circuit-grid">
+        ${DATA.circuits.map(c => { const s = circuitStatus(c); return `
+          <div class="ctile ${s}">
+            <div class="kv"><span class="k">${esc(c.name)}</span>${fuseBadge(c)}</div>
+            <div class="mw num" style="color:${s === "good" ? "var(--ink)" : statusColor(s)}">${fmt(c.use)} <span class="sub" style="font-size:12px">/ ${fmt(c.cap)} MW</span></div>
+            <div class="meter"><i style="width:${Math.min(100, c.use / c.cap * 100)}%;background:${statusColor(s)}"></i></div>
+            <div class="kv sub num"><span>🔋 ${c.batt} % · ${esc(c.battState)}</span>${sparkline(c.spark, 70, 18, statusColor(s))}</div>
+          </div>`; }).join("")}
+      </div>
+    </div>
+
+    <div class="panel prod"><h2>Production efficiency</h2>
+      <div class="scroll" style="flex:1;display:flex;flex-direction:column;gap:8px">
+        ${DATA.production.map(effBar).join("")}
+      </div>
+    </div>
+
+    <div class="panel mile"><h2>Milestone</h2>${milestoneBody()}</div>
+
+    <div class="panel store"><h2>Storage &amp; Sink</h2>${storageBody("b")}</div>
+
+    <div class="panel mapT"><h2>Map</h2><div style="flex:1;min-height:0">${mapSVG(true)}</div></div>
+
+    <div class="panel alarms"><h2>Alarms</h2><div class="scroll" style="flex:1">${alarmList(true)}</div></div>
+  </div>`;
+}
+
+/* ================= Variant C — “Status Rail” ================= */
+function VariantC() {
+  const crit = DATA.alarms.filter(a => a.sev === "critical").length;
+  return `<div class="vc">
+    <div class="statusbar ${crit ? "alarm" : ""}">
+      <span class="big">${crit ? "⛔ ALARM — FUSE TRIPPED: QUARTZ FIELD" : "✓ ALL SYSTEMS NOMINAL"}</span>
+      <span style="flex:1"></span>
+      ${DATA.alarms.map(a => `<span class="badge ${a.sev}${a.sev === "critical" ? " pulse" : ""}">${a.icon} ${esc(a.msg)}</span>`).join("")}
+      <span class="badge good">✓ FRM · ${DATA.frmAge}</span>
+    </div>
+
+    <div class="body">
+      <div class="rows">
+        ${DATA.circuits.map(c => { const s = circuitStatus(c); return `
+          <div class="crow ${s}">
+            <div>
+              <div class="name">${esc(c.name)}</div>
+              <div class="sub">${fuseBadge(c)}</div>
+            </div>
+            <div>
+              <div class="kv sub num"><span>load ${Math.round(c.use / c.cap * 100)} %</span><span>${fmt(c.use)} / ${fmt(c.cap)} MW · peak ${fmt(c.peak)}</span></div>
+              <div class="meter" style="height:10px"><i style="width:${Math.min(100, c.use / c.cap * 100)}%;background:${statusColor(s)}"></i></div>
+            </div>
+            <div>${sparkline(c.spark, 160, 34, statusColor(s))}<div class="sub">last 15 min</div></div>
+            <div class="num"><div>🔋 <b>${c.batt} %</b></div><div class="sub">${esc(c.battState)}</div></div>
+          </div>`; }).join("")}
+
+        <div class="panel prodlist"><h2>Production — worst first</h2>
+          <div class="scroll" style="flex:1;display:flex;flex-direction:column;gap:8px">
+            ${[...DATA.production].sort((a, b) => a.eff - b.eff).map(effBar).join("")}
+          </div>
+        </div>
+      </div>
+
+      <div class="rail">
+        <div class="panel" style="flex:none"><h2>Milestone</h2>${milestoneBody()}</div>
+        <div class="panel" style="flex:1;min-height:100px"><h2>Storage</h2>${storageBody("c")}</div>
+        <div class="panel" style="flex:none;height:150px"><h2>Map</h2><div style="flex:1;min-height:0">${mapSVG(false)}</div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ================= switcher + wiring ================= */
+const VARIANTS = [
+  { key:"A", name:"Map Deck",    render: VariantA },
+  { key:"B", name:"Grid Board",  render: VariantB },
+  { key:"C", name:"Status Rail", render: VariantC },
+];
+
+function currentKey() {
+  const k = new URLSearchParams(location.search).get("variant");
+  return VARIANTS.some(v => v.key === k) ? k : "A";
+}
+function setVariant(key) {
+  const url = new URL(location.href);
+  url.searchParams.set("variant", key);
+  history.replaceState(null, "", url);
+  render();
+}
+function cycle(dir) {
+  const i = VARIANTS.findIndex(v => v.key === currentKey());
+  setVariant(VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length].key);
+}
+function render() {
+  const v = VARIANTS.find(x => x.key === currentKey());
+  document.getElementById("app").innerHTML = v.render();
+  document.getElementById("variantLbl").textContent = `${v.key} — ${v.name}`;
+  document.getElementById("codexPop").style.display = "none";
+}
+
+document.getElementById("prevBtn").onclick = () => cycle(-1);
+document.getElementById("nextBtn").onclick = () => cycle(1);
+document.addEventListener("keydown", e => {
+  if (/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) || document.activeElement.isContentEditable) return;
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+
+/* codex popover + storage search (event delegation, survives re-render) */
+document.addEventListener("click", e => {
+  const pop = document.getElementById("codexPop");
+  const el = e.target.closest(".codex");
+  if (!el) { if (!e.target.closest("#codexPop")) pop.style.display = "none"; return; }
+  const item = el.dataset.item;
+  const c = DATA.codex[item] || { desc:"(no codex entry in fake data)", recipe:"—", building:"—", time:"—" };
+  pop.innerHTML = `
+    <h3>${esc(item)}</h3>
+    <div class="sub">${esc(c.desc)}</div>
+    <div class="kv"><span class="k">Recipe</span></div>
+    <div class="sub" style="color:var(--ink-2)">${esc(c.recipe)}</div>
+    <div class="kv"><span class="k">Building</span><span class="v">${esc(c.building)}</span></div>
+    <div class="kv"><span class="k">Cycle time</span><span class="v num">${esc(c.time)}</span></div>`;
+  pop.style.display = "block";
+  const r = el.getBoundingClientRect();
+  pop.style.left = Math.min(innerWidth - 280, r.left) + "px";
+  pop.style.top = Math.min(innerHeight - 220, r.bottom + 8) + "px";
+});
+document.addEventListener("input", e => {
+  const id = e.target.dataset && e.target.dataset.storesearch;
+  if (!id) return;
+  document.querySelector(`[data-storelist="${id}"]`).innerHTML = storageRows(e.target.value);
+});
+
+render();
+</script>
+</body>
+</html>
