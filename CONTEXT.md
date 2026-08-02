@@ -36,3 +36,11 @@ The optional 2.5D extruded-blocks upgrade, rendered from the same payload and sc
 
 **FRM**:
 Ficsit Remote Monitoring, the community mod whose JSON/WebSocket endpoints provide the live feed.
+
+**Followed session**:
+The single game session WorldState describes. The live feed's session is authoritative while the game runs; otherwise it is the session of the newest save by header `SaveDateTime`. When it changes, WorldState and the sparkline window are dropped and rebuilt — no cross-session history.
+_Avoid_: active session, selected save
+
+**Held save**:
+A parsed save whose header `SessionName` doesn't match the followed session; it is retained but never merged into WorldState, so a session switch mid-play can't produce chimera data.
+_Avoid_: stale save, orphan save
