@@ -1,0 +1,22 @@
+{
+  "name": "satisfactory-control-center",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only companion dashboard for inspecting the live state of a Satisfactory game.",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @scc/shared && npm run build --workspace @scc/server && npm run build --workspace @scc/web",
+    "dev": "npm run dev --workspace @scc/server & npm run dev --workspace @scc/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "pretest": "npm run build --workspace @scc/shared",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

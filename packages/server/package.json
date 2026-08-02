@@ -1,0 +1,19 @@
+{
+  "name": "@scc/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@scc/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0"
+  }
+}
