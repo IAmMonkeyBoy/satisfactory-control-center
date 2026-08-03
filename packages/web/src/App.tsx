@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import type { Domain, SourceAgeTag, WorldState } from "@scc/shared";
 import { useWorldState, type ConnectionStatus } from "./useWorldState";
 import { ageLabel, sourceLabel } from "./format";
