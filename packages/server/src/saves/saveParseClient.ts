@@ -7,7 +7,7 @@
  */
 import { Worker } from "node:worker_threads";
 import type { BaselineDomains } from "./extractBaseline.ts";
-import { moduleSibling } from "./moduleSibling.ts";
+import { moduleSibling } from "../moduleSibling.ts";
 import type { ParseRequest, ParseResponse, SaveParserWorkerData } from "./saveParseProtocol.ts";
 
 export interface SaveParser {

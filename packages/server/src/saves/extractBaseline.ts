@@ -38,6 +38,16 @@ export interface BaselineDomains {
 /** Rated capacity of a power storage bank when the dump doesn't say otherwise. */
 const DEFAULT_POWER_STORE_CAPACITY_MWH = 100;
 
+/** The domains of a WorldState that knows nothing yet. */
+export function emptyBaselineDomains(): BaselineDomains {
+  return {
+    power: { circuits: [] },
+    production: { items: [] },
+    storage: { items: [] },
+    milestones: { currentMilestone: null, spaceElevatorPhase: null },
+  };
+}
+
 export function extractBaseline(
   objects: Iterable<SaveObjectView>,
   staticData: StaticData,

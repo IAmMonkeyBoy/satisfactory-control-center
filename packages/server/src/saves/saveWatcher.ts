@@ -15,10 +15,11 @@
 import { watch, type FSWatcher } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { errorMessage } from "../errorMessage.ts";
 import type { BaselineDomains } from "./extractBaseline.ts";
 import { chooseBaselineSave, type SaveCandidate } from "./followedSession.ts";
-import { readSaveHeader } from "./saveHeader.ts";
-import { readSaveSnapshot, type ReadSnapshotOptions } from "./saveSnapshot.ts";
+import { readSaveHeader, type SaveHeader } from "./saveHeader.ts";
+import { readValidatedSave, type ReadSaveOptions } from "./validatedSave.ts";
 import type { WorldStateStore } from "./worldStateStore.ts";
 
 /** Bytes read off the front of each save to decode its header. */
@@ -42,7 +43,7 @@ export interface SaveWatcherOptions {
   parseSave: (bytes: ArrayBuffer) => Promise<BaselineDomains>;
   debounceMs?: number;
   /** How hard to retry a save that is still being written. */
-  snapshotRetry?: ReadSnapshotOptions;
+  readRetry?: ReadSaveOptions;
   /**
    * The session the live feed is streaming, consulted at decision time. Build 2
    * has no live feed, so this defaults to "down" and newest save wins outright;
@@ -53,9 +54,25 @@ export interface SaveWatcherOptions {
 }
 
 export interface SaveWatcher {
-  /** Resolves once no refresh is pending — the seam tests synchronise on. */
+  /**
+   * The most recently held save: parsed, kept aside, never merged. Null until a
+   * save from an unfollowed session turns up (CONTEXT.md, "Held save").
+   */
+  heldSave(): HeldSave | null;
+  /**
+   * Resolves once any debounce and refresh in flight have finished. Filesystem
+   * watching is asynchronous by nature; this is how a caller waits for it to
+   * catch up with writes that have already landed.
+   */
   settled(): Promise<void>;
   close(): Promise<void>;
+}
+
+/** A save parsed in full but deliberately kept out of WorldState. */
+export interface HeldSave {
+  path: string;
+  header: SaveHeader;
+  baseline: BaselineDomains;
 }
 
 /**
@@ -67,8 +84,11 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
   const liveSessionName = options.liveSessionName ?? (() => null);
   const emit = (event: WatcherEvent): void => options.onEvent?.(event);
 
-  let appliedPath: string | undefined;
-  let appliedSaveDateTime: number | undefined;
+  // The save last acted on, merged or held alike. Autosaves rotate through the
+  // same three filenames, so identity is the pair of path and header time.
+  let examinedPath: string | undefined;
+  let examinedSaveDateTime: number | undefined;
+  let held: HeldSave | null = null;
   let debounceTimer: NodeJS.Timeout | undefined;
   let running: Promise<void> | undefined;
   let rerunRequested = false;
@@ -84,35 +104,39 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
     if (!choice) return;
 
     const { save, disposition, sessionChanged } = choice;
-    // Autosaves rotate through the same three filenames, so identity is the pair
-    // of path and header time, never the path alone.
-    if (save.path === appliedPath && save.header.saveDateTime === appliedSaveDateTime) return;
+    if (save.path === examinedPath && save.header.saveDateTime === examinedSaveDateTime) return;
 
-    let snapshot;
+    let validated;
     try {
-      snapshot = await readSaveSnapshot(save.path, options.snapshotRetry);
+      validated = await readValidatedSave(save.path, options.readRetry);
     } catch (cause) {
       emit({ type: "rejected", path: save.path, error: errorMessage(cause) });
-      return;
-    }
-
-    if (disposition === "held") {
-      // Parsed for its header and kept aside, never merged: a save from another
-      // session would turn WorldState into a chimera of two worlds.
-      emit({
-        type: "held",
-        path: save.path,
-        sessionName: snapshot.header.sessionName,
-        followedSessionName: options.store.followedSessionName(),
-      });
       return;
     }
 
     let baseline: BaselineDomains;
     try {
-      baseline = await options.parseSave(snapshot.bytes);
+      baseline = await options.parseSave(validated.bytes);
     } catch (cause) {
       emit({ type: "rejected", path: save.path, error: errorMessage(cause) });
+      return;
+    }
+
+    // Whatever happens next, this save has now been dealt with; re-reading and
+    // re-parsing it on every subsequent directory event would be pure waste.
+    examinedPath = save.path;
+    examinedSaveDateTime = validated.header.saveDateTime;
+
+    if (disposition === "held") {
+      // Parsed in full and kept aside, never merged: folding in a save from
+      // another session would turn WorldState into a chimera of two worlds.
+      held = { path: save.path, header: validated.header, baseline };
+      emit({
+        type: "held",
+        path: save.path,
+        sessionName: validated.header.sessionName,
+        followedSessionName: options.store.followedSessionName(),
+      });
       return;
     }
 
@@ -121,19 +145,18 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
       emit({
         type: "sessionChanged",
         from: options.store.followedSessionName(),
-        to: snapshot.header.sessionName,
+        to: validated.header.sessionName,
       });
       options.store.reset();
     }
 
-    options.store.applyBaseline(baseline, snapshot.header);
-    appliedPath = save.path;
-    appliedSaveDateTime = snapshot.header.saveDateTime;
+    options.store.applyBaseline(baseline, validated.header);
+    held = null;
     emit({
       type: "baseline",
       path: save.path,
-      sessionName: snapshot.header.sessionName,
-      saveDateTime: snapshot.header.saveDateTime,
+      sessionName: validated.header.sessionName,
+      saveDateTime: validated.header.saveDateTime,
     });
   }
 
@@ -177,6 +200,9 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
   }
 
   return {
+    heldSave(): HeldSave | null {
+      return held;
+    },
     async settled(): Promise<void> {
       // Give a just-written file time to trip the debounce, then drain whatever
       // refresh it started (including any coalesced re-run).
@@ -235,8 +261,4 @@ async function readHeaderBytes(filePath: string): Promise<Buffer> {
   } finally {
     await handle.close();
   }
-}
-
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }

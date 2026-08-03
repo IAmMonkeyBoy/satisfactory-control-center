@@ -12,6 +12,7 @@
  */
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 import { Parser } from "@etothepii/satisfactory-file-parser";
+import { errorMessage } from "../errorMessage.ts";
 import { loadStaticData, parseDocs, type StaticData } from "../staticData/staticData.ts";
 import { extractBaseline, type SaveObjectView } from "./extractBaseline.ts";
 import type { ParseRequest, ParseResponse, SaveParserWorkerData } from "./saveParseProtocol.ts";
@@ -29,7 +30,7 @@ const staticDataReady: Promise<StaticData> = docsPath
   ? loadStaticData(docsPath).catch((cause: unknown) => {
       port.postMessage({
         type: "warning",
-        message: `static data unavailable at ${docsPath}: ${String(cause)}`,
+        message: `static data unavailable at ${docsPath}: ${errorMessage(cause)}`,
       } satisfies ParseResponse);
       return parseDocs([]);
     })
@@ -51,7 +52,7 @@ async function handle(port: MessagePort, request: ParseRequest): Promise<void> {
     port.postMessage({
       type: "failed",
       id: request.id,
-      error: cause instanceof Error ? cause.message : String(cause),
+      error: errorMessage(cause),
     } satisfies ParseResponse);
   }
 }

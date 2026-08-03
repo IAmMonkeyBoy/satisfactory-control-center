@@ -1,5 +1,5 @@
 /**
- * Taking a trustworthy snapshot of a save file that the game may be writing.
+ * Reading a save file the game may still be writing, and vouching for it.
  *
  * The game does not write saves atomically and change notifications arrive before
  * the write finishes, so a save observed the instant it changes is often short by a
@@ -9,7 +9,7 @@
  * closed again before parsing starts — and leaves no scratch files to clean up.
  *
  * Two failures are retried with backoff: a sharing violation (Windows can refuse
- * the open outright during the ~1–2 s write window) and a snapshot that fails
+ * the open outright during the ~1–2 s write window) and bytes that fail
  * validation, which is what a half-written file looks like.
  */
 import { readFile } from "node:fs/promises";
@@ -19,13 +19,13 @@ import { InvalidSaveError, validateSaveFile, type SaveHeader } from "./saveHeade
 /** Errors Windows raises while the game still holds the file open for writing. */
 const SHARING_VIOLATION_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
 
-export interface SaveSnapshot {
+export interface ValidatedSave {
   header: SaveHeader;
   /** The whole file, ready to be transferred to the parser worker. */
   bytes: ArrayBuffer;
 }
 
-export interface ReadSnapshotOptions {
+export interface ReadSaveOptions {
   /** Total attempts before giving up. */
   attempts?: number;
   /** Delay before the first retry; doubles on each further attempt. */
@@ -40,10 +40,10 @@ const DEFAULT_RETRY_DELAY_MS = 250;
  * it. Throws the last failure once the attempts are used up — the caller keeps the
  * WorldState it already had rather than trusting a partial file.
  */
-export async function readSaveSnapshot(
+export async function readValidatedSave(
   filePath: string,
-  options: ReadSnapshotOptions = {},
-): Promise<SaveSnapshot> {
+  options: ReadSaveOptions = {},
+): Promise<ValidatedSave> {
   const attempts = options.attempts ?? DEFAULT_ATTEMPTS;
   let retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   let lastError: unknown;

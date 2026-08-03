@@ -1,5 +1,5 @@
 import { parentPort } from "node:worker_threads";
-import type { BaselineDomains } from "./extractBaseline.ts";
+import { emptyBaselineDomains, type BaselineDomains } from "./extractBaseline.ts";
 import type { ParseRequest, ParseResponse } from "./saveParseProtocol.ts";
 
 /**
@@ -17,12 +17,8 @@ const port = parentPort;
 if (!port) throw new Error("test worker must be run as a worker thread");
 
 const baseline: BaselineDomains = {
-  power: { circuits: [] },
-  production: { items: [] },
-  storage: {
-    items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 42 }],
-  },
-  milestones: { currentMilestone: null, spaceElevatorPhase: null },
+  ...emptyBaselineDomains(),
+  storage: { items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 42 }] },
 };
 
 port.on("message", (request: ParseRequest) => {

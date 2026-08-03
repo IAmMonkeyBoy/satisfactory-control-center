@@ -26,14 +26,12 @@ export interface DocsEntry {
   fields: Record<string, unknown>;
 }
 
-/** An item or fluid, in the units the dashboard displays. */
+/** An item or fluid. Anything beyond this is read from {@link DocsEntry.fields}. */
 export interface ItemInfo {
   className: string;
   displayName: string;
-  description: string;
   /** True for fluids and gases, whose amounts the dump scales by 1000. */
   isFluid: boolean;
-  resourceSinkPoints: number;
 }
 
 /** One side of a recipe: how much of an item, and at what rate. */
@@ -81,11 +79,6 @@ export class StaticData {
     this.entries = entries;
   }
 
-  /** How many classes the dump covered — useful for a startup log line. */
-  get size(): number {
-    return this.entries.size;
-  }
-
   /** The raw exported entry, for codex features not yet given a typed view. */
   entry(classNameOrPath: string): DocsEntry | null {
     return this.entries.get(classNameFromPath(classNameOrPath)) ?? null;
@@ -107,9 +100,7 @@ export class StaticData {
     return {
       className: entry.className,
       displayName: asString(entry.fields.mDisplayName) ?? entry.className,
-      description: asString(entry.fields.mDescription) ?? "",
       isFluid: isFluidForm(asString(entry.fields.mForm)),
-      resourceSinkPoints: asNumber(entry.fields.mResourceSinkPoints) ?? 0,
     };
   }
 

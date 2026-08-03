@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createWorkerSaveParser, type SaveParser } from "./saveParseClient.ts";
-import { moduleSibling } from "./moduleSibling.ts";
+import { moduleSibling } from "../moduleSibling.ts";
 
 let parser: SaveParser | undefined;
 

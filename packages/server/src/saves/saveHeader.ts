@@ -61,8 +61,8 @@ class ByteReader {
   private offset = 0;
   private readonly bytes: Buffer;
 
-  // Node strips types rather than compiling them (`--experimental-strip-types`),
-  // so constructor parameter properties are not available here.
+  // Node strips types rather than compiling them when the server runs straight
+  // from source, so constructor parameter properties are not available here.
   constructor(bytes: Buffer) {
     this.bytes = bytes;
   }

@@ -77,6 +77,10 @@ describe("building power", () => {
   it("reports zero production for a building that generates nothing", () => {
     expect(staticData.building("Build_ConstructorMk1_C")?.powerProductionMW).toBe(0);
   });
+
+  it("exposes the raw exported entry for codex fields with no typed view yet", () => {
+    expect(staticData.entry("Desc_IronPlate_C")?.fields.mDescription).toBe("Used for crafting.");
+  });
 });
 
 describe("loadStaticData", () => {

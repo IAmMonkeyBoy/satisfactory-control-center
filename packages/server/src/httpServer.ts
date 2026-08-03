@@ -23,8 +23,7 @@ const DEFAULT_PUSH_INTERVAL_MS = 2000;
  */
 export function createServer(options: ServerOptions): http.Server {
   const pushIntervalMs = options.pushIntervalMs ?? DEFAULT_PUSH_INTERVAL_MS;
-  const buildWorldState = options.buildWorldState;
-  const staticDir = options.staticDir;
+  const { buildWorldState, staticDir } = options;
 
   return http.createServer((req, res) => {
     // Single-user LAN tool: allow the Vite dev origin to read the API directly.

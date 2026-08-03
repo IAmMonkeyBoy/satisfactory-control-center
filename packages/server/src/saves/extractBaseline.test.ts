@@ -179,8 +179,8 @@ describe("milestones baseline", () => {
   });
 });
 
-describe("followed session", () => {
-  it("produces empty domains for a save holding nothing recognisable", () => {
+describe("a save with nothing recognisable in it", () => {
+  it("produces empty domains rather than failing", () => {
     const baseline = baselineOf([]);
 
     expect(baseline.power.circuits).toEqual([]);

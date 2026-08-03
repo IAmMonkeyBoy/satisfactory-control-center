@@ -16,7 +16,7 @@ import type {
   StorageState,
   WorldState,
 } from "@scc/shared";
-import type { BaselineDomains } from "./extractBaseline.ts";
+import { emptyBaselineDomains, type BaselineDomains } from "./extractBaseline.ts";
 import type { SaveHeader } from "./saveHeader.ts";
 
 export interface WorldStateStore {
@@ -30,23 +30,19 @@ export interface WorldStateStore {
   followedSessionName(): string | null;
 }
 
-interface Held {
+/** Everything the store holds: the followed session and its baseline. */
+interface StoreState {
   followedSessionName: string | null;
   capturedAt: number;
   domains: BaselineDomains;
 }
 
-function emptyDomains(): BaselineDomains {
-  return {
-    power: { circuits: [] },
-    production: { items: [] },
-    storage: { items: [] },
-    milestones: { currentMilestone: null, spaceElevatorPhase: null },
-  };
+function emptyState(): StoreState {
+  return { followedSessionName: null, capturedAt: 0, domains: emptyBaselineDomains() };
 }
 
 export function createWorldStateStore(): WorldStateStore {
-  let state: Held = { followedSessionName: null, capturedAt: 0, domains: emptyDomains() };
+  let state: StoreState = emptyState();
 
   return {
     snapshot(now: number): WorldState {
@@ -74,7 +70,7 @@ export function createWorldStateStore(): WorldStateStore {
     },
 
     reset(): void {
-      state = { followedSessionName: null, capturedAt: 0, domains: emptyDomains() };
+      state = emptyState();
     },
 
     followedSessionName(): string | null {

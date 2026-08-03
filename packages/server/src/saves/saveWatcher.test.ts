@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { BaselineDomains } from "./extractBaseline.ts";
+import { emptyBaselineDomains, type BaselineDomains } from "./extractBaseline.ts";
 import { readSaveHeader } from "./saveHeader.ts";
 import { startSaveWatcher, type SaveWatcher, type WatcherEvent } from "./saveWatcher.ts";
 import { buildSaveFile, buildSaveHeader } from "./saveTestSupport.ts";
@@ -35,12 +35,8 @@ afterEach(async () => {
 function parseSave(bytes: ArrayBuffer): Promise<BaselineDomains> {
   const count = Number(readSaveHeader(Buffer.from(bytes)).saveName.replace("count=", ""));
   return Promise.resolve({
-    power: { circuits: [] },
-    production: { items: [] },
-    storage: {
-      items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count }],
-    },
-    milestones: { currentMilestone: null, spaceElevatorPhase: null },
+    ...emptyBaselineDomains(),
+    storage: { items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count }] },
   });
 }
 
@@ -64,7 +60,7 @@ async function start(): Promise<void> {
     debounceMs: 10,
     // The real backoff waits seconds for the game to finish writing; tests only
     // need to prove a rejected save is retried and then given up on.
-    snapshotRetry: { attempts: 2, retryDelayMs: 1 },
+    readRetry: { attempts: 2, retryDelayMs: 1 },
     liveSessionName: () => liveSessionName,
     onEvent: (event) => events.push(event),
   });
@@ -195,6 +191,48 @@ describe("save watcher", () => {
     expect(worldState.followedSession?.sessionName).toBe("Random Defaults");
     expect(storedCount()).toBe(500);
     expect(events.some((event) => event.type === "held")).toBe(true);
+  });
+
+  it("parses a held save and keeps it aside, ready for a session switch", async () => {
+    liveSessionName = "Random Defaults";
+    await writeSave("followed.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 500,
+    });
+    await start();
+    expect(watcher!.heldSave()).toBeNull();
+
+    await writeSave("other-world.sav", {
+      sessionName: "Dune Desert",
+      saveDateTimeMs: 1_700_000_060_000,
+      count: 3,
+    });
+    await watcher!.settled();
+
+    // "Parsed but held" (CONTEXT.md): the work is done and the result retained,
+    // it just never reaches WorldState.
+    const held = watcher!.heldSave();
+    expect(held?.header.sessionName).toBe("Dune Desert");
+    expect(held?.baseline.storage.items[0]?.count).toBe(3);
+  });
+
+  it("does not re-read a held save on every later directory event", async () => {
+    liveSessionName = "Random Defaults";
+    await writeSave("other-world.sav", {
+      sessionName: "Dune Desert",
+      saveDateTimeMs: 1_700_000_060_000,
+      count: 3,
+    });
+    await start();
+    const afterFirst = events.filter((event) => event.type === "held").length;
+
+    // An unrelated write stirs the directory; the held save is unchanged, so
+    // re-reading and re-parsing all of it would be pure waste.
+    await writeFile(path.join(directory, "notes.txt"), "touched");
+    await watcher!.settled();
+
+    expect(events.filter((event) => event.type === "held")).toHaveLength(afterFirst);
   });
 
   it("ignores files that are not saves", async () => {
