@@ -6,3 +6,4 @@ dist/
 
 # Playwright MCP scratch output (page snapshots, traces).
 .playwright-mcp/
+.claude/settings.local.json
