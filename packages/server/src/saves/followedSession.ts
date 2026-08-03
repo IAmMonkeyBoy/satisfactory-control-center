@@ -44,27 +44,63 @@ export interface ChooseBaselineArgs {
   followedSessionName: string | null;
 }
 
+/** What may be done with a save from `sessionName`, and at what cost. */
+export interface Disposition {
+  disposition: SaveDisposition;
+  sessionChanged: boolean;
+}
+
+export interface DecideDispositionArgs {
+  /** The session named in the save's own header. */
+  sessionName: string;
+  /** Session the live feed is streaming, or null when it is down. */
+  liveSessionName: string | null;
+  /** Session WorldState currently describes, or null before anything is followed. */
+  followedSessionName: string | null;
+}
+
+/**
+ * The merge rule itself, as a decision about one save's session.
+ *
+ * While the live feed is up its session identity is authoritative, so only a save
+ * from the session it streams may merge and anything else is held; while it is
+ * down, newest wins outright. A held save never becomes the followed session, so
+ * it can never be what triggers a reset.
+ *
+ * This is deliberately separate from choosing *which* save to act on: the two
+ * happen seconds apart — a large save takes that long to read and parse — and the
+ * answer must be recomputed from the validated header and the session state as
+ * they stand at the moment the baseline is committed.
+ */
+export function decideDisposition(args: DecideDispositionArgs): Disposition {
+  const disposition: SaveDisposition =
+    args.liveSessionName !== null && args.liveSessionName !== args.sessionName ? "held" : "merged";
+
+  return {
+    disposition,
+    sessionChanged: disposition === "merged" && args.sessionName !== args.followedSessionName,
+  };
+}
+
 /**
  * Pick the save the dashboard should act on and say what may be done with it, or
  * null when there is nothing to act on.
  *
  * Ordering is by header `SaveDateTime`; modification time breaks exact ties only,
  * because Steam Cloud and file copies move mtime without the save's contents
- * changing. Disposition follows the live feed: while it is up, only a save from
- * the session it streams may merge; while it is down, newest wins outright.
+ * changing.
  */
 export function chooseBaselineSave(args: ChooseBaselineArgs): BaselineChoice | null {
   const save = newestSave(args.candidates);
   if (!save) return null;
 
-  const sessionName = save.header.sessionName;
-  const disposition: SaveDisposition =
-    args.liveSessionName !== null && args.liveSessionName !== sessionName ? "held" : "merged";
-
   return {
     save,
-    disposition,
-    sessionChanged: disposition === "merged" && sessionName !== args.followedSessionName,
+    ...decideDisposition({
+      sessionName: save.header.sessionName,
+      liveSessionName: args.liveSessionName,
+      followedSessionName: args.followedSessionName,
+    }),
   };
 }
 

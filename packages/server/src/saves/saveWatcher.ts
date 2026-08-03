@@ -17,7 +17,7 @@ import { open, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { errorMessage } from "../errorMessage.ts";
 import type { BaselineDomains } from "./extractBaseline.ts";
-import { chooseBaselineSave, type SaveCandidate } from "./followedSession.ts";
+import { chooseBaselineSave, decideDisposition, type SaveCandidate } from "./followedSession.ts";
 import { readSaveHeader, type SaveHeader } from "./saveHeader.ts";
 import { readValidatedSave, type ReadSaveOptions } from "./validatedSave.ts";
 import type { WorldStateStore } from "./worldStateStore.ts";
@@ -103,7 +103,7 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
     });
     if (!choice) return;
 
-    const { save, disposition, sessionChanged } = choice;
+    const { save } = choice;
     if (save.path === examinedPath && save.header.saveDateTime === examinedSaveDateTime) return;
 
     let validated;
@@ -126,6 +126,17 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
     // re-parsing it on every subsequent directory event would be pure waste.
     examinedPath = save.path;
     examinedSaveDateTime = validated.header.saveDateTime;
+
+    // Decide again, now, against the header that was actually validated and the
+    // sessions as they stand. Reading and parsing a large save takes seconds, and
+    // in that time the rotating autosave slot can have been overwritten by a
+    // different save, or the live feed can have switched sessions — either of
+    // which would make the decision taken at scan time the wrong one to commit.
+    const { disposition, sessionChanged } = decideDisposition({
+      sessionName: validated.header.sessionName,
+      liveSessionName: liveSessionName(),
+      followedSessionName: options.store.followedSessionName(),
+    });
 
     if (disposition === "held") {
       // Parsed in full and kept aside, never merged: folding in a save from
@@ -187,8 +198,16 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
     debounceTimer.unref();
   }
 
-  await refresh();
+  /** Wait out the refresh in flight and any re-run it queued behind itself. */
+  async function drain(): Promise<void> {
+    while (running) await running;
+  }
 
+  // Watch before the first scan, not after it. The initial refresh reads and
+  // parses a save, which takes seconds on a large one; a save written during that
+  // window and never announced would leave WorldState stale until the next
+  // autosave. Registering first means such a write schedules a refresh, and
+  // `runRefresh` coalesces it behind the one already running.
   let watcher: FSWatcher | undefined;
   try {
     watcher = watch(options.directory, (_event, filename) => {
@@ -199,6 +218,9 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
     emit({ type: "error", error: errorMessage(cause) });
   }
 
+  runRefresh();
+  await drain();
+
   return {
     heldSave(): HeldSave | null {
       return held;
@@ -207,7 +229,7 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
       // Give a just-written file time to trip the debounce, then drain whatever
       // refresh it started (including any coalesced re-run).
       await new Promise((resolve) => setTimeout(resolve, debounceMs + 20));
-      while (running) await running;
+      await drain();
     },
     async close(): Promise<void> {
       closed = true;

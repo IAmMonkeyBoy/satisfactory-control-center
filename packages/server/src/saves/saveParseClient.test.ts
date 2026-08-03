@@ -64,6 +64,32 @@ describe("worker save parsing", () => {
     expect(first.storage.items).toEqual(second.storage.items);
   });
 
+  it("rejects the parse that killed the worker", async () => {
+    parser = createWorkerSaveParser({ docsPath: null, workerUrl: blockingWorker });
+
+    // A save the parser chokes on badly enough to take the thread down with it.
+    await expect(parser.parse(new ArrayBuffer(1))).rejects.toThrow(/exited/);
+  });
+
+  it("recovers on the next save after the worker dies", async () => {
+    // An always-on dashboard must not stop updating until someone restarts it:
+    // the crash costs one parse, not every parse after it.
+    parser = createWorkerSaveParser({ docsPath: null, workerUrl: blockingWorker });
+    await expect(parser.parse(new ArrayBuffer(1))).rejects.toThrow();
+
+    const baseline = await parser.parse(new ArrayBuffer(8));
+
+    expect(baseline.storage.items[0]?.count).toBe(42);
+  });
+
+  it("rejects further parses once closed, rather than waiting on a dead worker", async () => {
+    parser = createWorkerSaveParser({ docsPath: null, workerUrl: blockingWorker });
+    await parser.close();
+
+    await expect(parser.parse(new ArrayBuffer(8))).rejects.toThrow(/closed/);
+    parser = undefined;
+  });
+
   it("rejects in-flight parses when the parser is closed", async () => {
     parser = createWorkerSaveParser({ docsPath: null, workerUrl: blockingWorker });
 

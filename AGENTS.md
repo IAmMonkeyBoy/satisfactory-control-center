@@ -38,6 +38,8 @@ nvm use            # Node 24 per .nvmrc
 npm ci             # clean, lockfile-exact install (use `npm install` when changing deps)
 ```
 
+**Pick one shell and stay in it.** The checkout lives on `/mnt/c`, so PowerShell and WSL share one `node_modules` — but npm installs native optional dependencies (`@rolldown/binding-*`, `lightningcss-*`) only for the platform it runs on, and removes the others. Installing from the other shell therefore breaks `npm run build` with a missing-`.node` or NAPI binding error. The fix is always `npm install` from whichever shell you are building in; the lockfile is unaffected. CI is immune — it installs fresh on Linux.
+
 ### Verify (the definition of done)
 
 `npm run check` is the single gate — it must pass before a work item is considered complete and is exactly what CI runs (`.github/workflows/ci.yml`). It runs, in order:

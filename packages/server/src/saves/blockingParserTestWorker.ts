@@ -22,6 +22,10 @@ const baseline: BaselineDomains = {
 };
 
 port.on("message", (request: ParseRequest) => {
+  // A one-byte payload stands in for a save that kills the parser outright, so
+  // the client's recovery from a dead worker can be tested.
+  if (request.bytes.byteLength === 1) process.exit(1);
+
   const until = Date.now() + BLOCK_MS;
   while (Date.now() < until) {
     // Deliberately synchronous: a real parse holds its thread the same way.

@@ -13,12 +13,15 @@ let watcher: SaveWatcher | undefined;
 let store: WorldStateStore;
 let events: WatcherEvent[];
 let liveSessionName: string | null;
+/** Set to hold every parse open, so a test can act mid-parse. */
+let parseGate: { held: Promise<void>; parseStarted: () => void } | undefined;
 
 beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), "scc-saves-"));
   store = createWorldStateStore();
   events = [];
   liveSessionName = null;
+  parseGate = undefined;
 });
 
 afterEach(async () => {
@@ -32,12 +35,41 @@ afterEach(async () => {
  * The real body is zlib-compressed, so the count travels in the header's save name
  * where the stub can read it without a parser.
  */
-function parseSave(bytes: ArrayBuffer): Promise<BaselineDomains> {
+async function parseSave(bytes: ArrayBuffer): Promise<BaselineDomains> {
   const count = Number(readSaveHeader(Buffer.from(bytes)).saveName.replace("count=", ""));
-  return Promise.resolve({
+  // A real parse takes seconds; the gate lets a test occupy that window.
+  if (parseGate) {
+    parseGate.parseStarted();
+    await parseGate.held;
+  }
+  return {
     ...emptyBaselineDomains(),
     storage: { items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count }] },
+  };
+}
+
+/**
+ * Hold every parse open. `started` resolves once a parse has actually begun —
+ * which is the only way to land a change strictly between the watcher deciding
+ * what to do with a save and it committing that decision.
+ */
+function holdParses(): { started: Promise<void>; release: () => void } {
+  let release = (): void => {};
+  let parseStarted = (): void => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
   });
+  const started = new Promise<void>((resolve) => {
+    parseStarted = resolve;
+  });
+  parseGate = { held, parseStarted };
+  return {
+    started,
+    release: () => {
+      parseGate = undefined;
+      release();
+    },
+  };
 }
 
 async function writeSave(
@@ -280,6 +312,73 @@ describe("save watcher", () => {
 
     expect(events.filter((event) => event.type === "baseline")).toHaveLength(1);
     expect(storedCount()).toBe(42);
+  });
+
+  it("picks up a save written while the very first parse is still running", async () => {
+    // Startup reads and parses a save, which on a large one takes seconds. A save
+    // landing in that window must not be missed, or the dashboard sits stale until
+    // the next autosave five minutes later.
+    await writeSave("first.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 1,
+    });
+    const gate = holdParses();
+
+    const starting = start();
+    await gate.started;
+    await writeSave("second.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_060_000,
+      count: 2,
+    });
+    gate.release();
+    await starting;
+    await watcher!.settled();
+
+    expect(storedCount()).toBe(2);
+  });
+
+  it("holds a save if the live feed switched sessions while it was parsing", async () => {
+    // The decision taken when the save was picked can be stale by the time the
+    // parse finishes: here the live feed comes up mid-parse, streaming a different
+    // world than the save describes.
+    await writeSave("other-world.sav", {
+      sessionName: "Dune Desert",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 3,
+    });
+    const gate = holdParses();
+
+    const starting = start();
+    await gate.started;
+    liveSessionName = "Random Defaults";
+    gate.release();
+    await starting;
+
+    expect(store.snapshot(Date.now()).followedSession).toBeNull();
+    expect(watcher!.heldSave()?.header.sessionName).toBe("Dune Desert");
+  });
+
+  it("merges a save if the live feed dropped while it was parsing", async () => {
+    // And the mirror image: the save was held-bound when picked, but with the live
+    // feed gone there is no longer a competing session identity to defer to.
+    liveSessionName = "Random Defaults";
+    await writeSave("other-world.sav", {
+      sessionName: "Dune Desert",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 3,
+    });
+    const gate = holdParses();
+
+    const starting = start();
+    await gate.started;
+    liveSessionName = null;
+    gate.release();
+    await starting;
+
+    expect(store.snapshot(Date.now()).followedSession?.sessionName).toBe("Dune Desert");
+    expect(watcher!.heldSave()).toBeNull();
   });
 
   it("rejects a header-only file with no body", async () => {
