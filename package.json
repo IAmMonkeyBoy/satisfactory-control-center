@@ -6,7 +6,7 @@
   "description": "Read-only companion dashboard for inspecting the live state of a Satisfactory game.",
   "packageManager": "npm@10.9.2",
   "engines": {
-    "node": ">=22.0.0 <23"
+    "node": ">=24.0.0 <25"
   },
   "workspaces": [
     "packages/shared",
@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.9.0",
+    "@types/node": "^24.13.3",
     "eslint": "^9.9.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.8.0",

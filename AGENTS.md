@@ -27,14 +27,14 @@ When picking up a work item (a build ticket / GitHub issue), follow this branch-
 
 ### Toolchain
 
-- **Node** — the version in `.nvmrc` (Node 22 LTS; `engines` requires `>=22.0.0 <23`). Use `nvm use` (or install Node 22) before working.
+- **Node** — the version in `.nvmrc` (Node 24 LTS; `engines` requires `>=24.0.0 <25`). Use `nvm use` (or install Node 24) before working.
 - **npm** — pinned via `packageManager` (npm 10.9.x). This is an npm-workspaces monorepo; there is no Turborepo/Nx.
 - **Packages** — `packages/shared` (WorldState + SSE contract, the source of truth both sides compile against), `packages/server` (Node + TypeScript API and dashboard host), `packages/web` (React + Vite + Tailwind dashboard).
 
 ### Setup
 
 ```bash
-nvm use            # Node 22 per .nvmrc
+nvm use            # Node 24 per .nvmrc
 npm ci             # clean, lockfile-exact install (use `npm install` when changing deps)
 ```
 
