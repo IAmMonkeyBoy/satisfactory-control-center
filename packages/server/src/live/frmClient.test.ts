@@ -141,6 +141,24 @@ describe("startFrmClient", () => {
     expect(onData).toHaveBeenCalledWith("getPower", FRM_PUSH.getPower, expect.any(Number));
   });
 
+  it("routes a getSessionInfo push even though FRM sends it unwrapped, with no envelope", async () => {
+    // Confirmed against a running FRM instance: every other subscribed
+    // endpoint arrives as `{ endpoint, data }`, but getSessionInfo pushes the
+    // raw session object with no `endpoint` field at all.
+    start();
+    await vi.advanceTimersByTimeAsync(0);
+    sockets[0]!.open();
+    onData.mockClear();
+
+    sockets[0]!.message(JSON.stringify(FRM_PUSH.getSessionInfo));
+
+    expect(onData).toHaveBeenCalledWith(
+      "getSessionInfo",
+      FRM_PUSH.getSessionInfo,
+      expect.any(Number),
+    );
+  });
+
   it("ignores a push that isn't the documented envelope", async () => {
     start();
     await vi.advanceTimersByTimeAsync(0);
