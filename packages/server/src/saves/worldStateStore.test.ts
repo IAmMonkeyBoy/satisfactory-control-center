@@ -216,4 +216,73 @@ describe("worldStateStore", () => {
       capturedAt: 9_000,
     });
   });
+
+  it("does not fabricate a baseline when FRM drops before any save was ever accepted for its session", () => {
+    // A session confirmed only by FRM, disconnected before the first autosave
+    // — there is no baseline to fall back to at all, so falling back to one
+    // anyway would report a save that was never taken, aged from epoch 0.
+    const store = createWorldStateStore();
+    store.applyLiveDomains(
+      {
+        power: {
+          circuits: [
+            {
+              id: "1",
+              productionMW: 5,
+              consumptionMW: 5,
+              capacityMW: 10,
+              batteryPercent: 50,
+              fuseTripped: false,
+            },
+          ],
+        },
+      },
+      { sessionName: "Dune Desert", capturedAt: 9_000 },
+    );
+
+    store.clearLive();
+
+    const ws = store.snapshot(20_000);
+    expect(store.followedSessionName()).toBe("Dune Desert");
+    // The last live reading is still reported, honestly aged — not a
+    // fabricated "baseline, 20 seconds old" that was never actually taken.
+    expect(ws.followedSession).toEqual({
+      sessionName: "Dune Desert",
+      source: "live",
+      capturedAt: 9_000,
+    });
+    expect(ws.power.tag).toEqual({ source: "live", capturedAt: 9_000 });
+    expect(ws.power.data.circuits[0]?.productionMW).toBe(5);
+    // A domain FRM never reported at all still has nothing to fall back to
+    // either way, and stays the untouched empty default.
+    expect(ws.storage.tag).toEqual({ source: "baseline", capturedAt: 0 });
+    expect(ws.storage.data.items).toEqual([]);
+  });
+
+  it("prefers a real baseline over a frozen live reading once one is accepted", () => {
+    const store = createWorldStateStore();
+    store.applyLiveDomains(
+      { power: { circuits: [] } },
+      { sessionName: "Dune Desert", capturedAt: 9_000 },
+    );
+    store.clearLive();
+
+    store.applyBaseline(
+      baseline({
+        storage: {
+          items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 3 }],
+        },
+      }),
+      header({ sessionName: "Dune Desert", saveDateTime: 15_000 }),
+    );
+
+    const ws = store.snapshot(20_000);
+    expect(ws.followedSession).toEqual({
+      sessionName: "Dune Desert",
+      source: "baseline",
+      capturedAt: 15_000,
+    });
+    expect(ws.power.tag).toEqual({ source: "baseline", capturedAt: 15_000 });
+    expect(ws.storage.data.items[0]?.count).toBe(3);
+  });
 });

@@ -267,6 +267,47 @@ describe("save watcher", () => {
     expect(events.filter((event) => event.type === "held")).toHaveLength(afterFirst);
   });
 
+  it("promotes a held save to the baseline once the live session holding it back disappears", async () => {
+    liveSessionName = "Random Defaults";
+    await writeSave("other-world.sav", {
+      sessionName: "Dune Desert",
+      saveDateTimeMs: 1_700_000_060_000,
+      count: 3,
+    });
+    await start();
+    expect(watcher!.heldSave()?.header.sessionName).toBe("Dune Desert");
+    expect(store.snapshot(Date.now()).followedSession).toBeNull();
+
+    // FRM goes down: "with FRM down, newest save wins outright" (spec). No new
+    // file ever touches disk — only the live session context changed — so this
+    // has to be driven by `reevaluate`, not a filesystem event.
+    liveSessionName = null;
+    watcher!.reevaluate();
+    await watcher!.settled();
+
+    expect(watcher!.heldSave()).toBeNull();
+    const worldState = store.snapshot(Date.now());
+    expect(worldState.followedSession?.sessionName).toBe("Dune Desert");
+    expect(worldState.storage.data.items[0]?.count).toBe(3);
+  });
+
+  it("leaves a held save held when reevaluate finds nothing has actually changed", async () => {
+    liveSessionName = "Random Defaults";
+    await writeSave("other-world.sav", {
+      sessionName: "Dune Desert",
+      saveDateTimeMs: 1_700_000_060_000,
+      count: 3,
+    });
+    await start();
+    events.length = 0;
+
+    watcher!.reevaluate();
+    await watcher!.settled();
+
+    expect(watcher!.heldSave()?.header.sessionName).toBe("Dune Desert");
+    expect(events.some((event) => event.type === "baseline")).toBe(false);
+  });
+
   it("ignores files that are not saves", async () => {
     await writeFile(path.join(directory, "steam_autocloud.vdf"), "not a save");
     await writeFile(path.join(directory, "notes.txt"), "also not a save");

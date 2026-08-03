@@ -149,7 +149,11 @@ describe("startLiveIngestor", () => {
   });
 
   it("clears every live domain and forgets the session once FRM goes down", () => {
+    // A real baseline exists for this session, so there's something honest to
+    // fall back to — the ordinary case a live ingestor sees in practice, since
+    // the save watcher keeps the baseline in sync with FRM's session while live.
     const store = createWorldStateStore();
+    seedBaseline(store, "Random Defaults");
     const fake = fakeSource();
     const ingestor = startLiveIngestor({ store, createSource: fake.createSource });
     fake.handlers.onData("getSessionInfo", SESSION_INFO("Random Defaults"), 4_000);
@@ -160,6 +164,24 @@ describe("startLiveIngestor", () => {
     expect(ingestor.liveSessionName()).toBeNull();
     expect(store.snapshot(5_500).power.tag.source).toBe("baseline");
     // The followed session itself is untouched — only its source degraded.
+    expect(store.followedSessionName()).toBe("Random Defaults");
+  });
+
+  it("keeps the last live reading, honestly aging, when FRM goes down before any save was ever accepted", () => {
+    // No baseline exists for this session at all — a save-only fallback would
+    // report one that was never taken. Falling back to the frozen live
+    // reading is the honest choice (worldStateStore.test.ts covers this at
+    // the store level; this proves the ingestor doesn't defeat it).
+    const store = createWorldStateStore();
+    const fake = fakeSource();
+    const ingestor = startLiveIngestor({ store, createSource: fake.createSource });
+    fake.handlers.onData("getSessionInfo", SESSION_INFO("Random Defaults"), 4_000);
+    fake.handlers.onData("getPower", POWER_PUSH, 5_000);
+
+    fake.handlers.onStatusChange("down");
+
+    expect(ingestor.liveSessionName()).toBeNull();
+    expect(store.snapshot(20_000).power.tag).toEqual({ source: "live", capturedAt: 5_000 });
     expect(store.followedSessionName()).toBe("Random Defaults");
   });
 

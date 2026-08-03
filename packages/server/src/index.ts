@@ -5,7 +5,7 @@ import { createServer } from "./httpServer.ts";
 import { DEFAULT_PORT as FRM_DEFAULT_PORT, type FrmClientEvent } from "./live/frmClient.ts";
 import { startLiveIngestor, type LiveEvent, type LiveIngestor } from "./live/liveIngestor.ts";
 import { createWorkerSaveParser } from "./saves/saveParseClient.ts";
-import { startSaveWatcher, type WatcherEvent } from "./saves/saveWatcher.ts";
+import { startSaveWatcher, type SaveWatcher, type WatcherEvent } from "./saves/saveWatcher.ts";
 import { createWorldStateStore } from "./saves/worldStateStore.ts";
 
 const PORT = Number(process.env.PORT ?? 4317);
@@ -31,6 +31,13 @@ server.listen(PORT, () => {
   console.log(`  SSE stream:    http://localhost:${PORT}/api/stream`);
   console.log(`  REST snapshot: http://localhost:${PORT}/api/worldstate`);
 });
+
+// Set once the save watcher starts, below — read by `logLiveEvent` so a live
+// status/session change can immediately re-run the watcher's held-save
+// decision (see `SaveWatcher.reevaluate`'s doc comment). A live event can fire
+// before the watcher exists (startup is async), which the `?.` covers: nothing
+// is held yet for there to be anything to reconsider.
+let saveWatcher: SaveWatcher | undefined;
 
 // The live feed starts unconditionally — unlike the save directory and static
 // data, FRM has nothing to probe for on disk; whether it's actually reachable
@@ -70,7 +77,7 @@ async function startBaselineIngestor(liveIngestor: LiveIngestor): Promise<void> 
     onWarning: (message) => console.warn(`Save parser: ${message}`),
   });
 
-  await startSaveWatcher({
+  saveWatcher = await startSaveWatcher({
     directory: saveDirectory,
     store,
     parseSave: (bytes) => parser.parse(bytes),
@@ -85,10 +92,16 @@ function logLiveEvent(event: LiveEvent): void {
   switch (event.type) {
     case "sessionChanged":
       console.log(`FRM session changed from ${event.from ?? "none"} to ${event.to}`);
-      return;
+      break;
     case "statusChanged":
       console.log(`FRM is now ${event.status}`);
+      break;
   }
+
+  // The live/followed session context a held save's disposition depends on
+  // just changed with no file touching disk — reconsider it now rather than
+  // waiting for the next autosave to trigger a filesystem event.
+  saveWatcher?.reevaluate();
 }
 
 /** Raw transport-level detail behind a `statusChanged` in `logLiveEvent` — logged

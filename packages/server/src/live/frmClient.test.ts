@@ -227,6 +227,46 @@ describe("startFrmClient", () => {
     expect(onStatusChange).not.toHaveBeenCalled();
   });
 
+  it("never runs two poll ticks concurrently, even if one outruns the interval", async () => {
+    const pending: ((value: FakeResponse) => void)[] = [];
+    fetchImpl = (url: string) => {
+      fetchCalls.push(url);
+      return new Promise((resolve) => pending.push(resolve));
+    };
+    start({ pollIntervalMs: 1000, pollTimeoutMs: 60_000 });
+
+    await vi.advanceTimersByTimeAsync(0); // the first tick starts; 4 requests in flight
+    expect(fetchCalls).toHaveLength(4);
+
+    await vi.advanceTimersByTimeAsync(5000); // several interval periods elapse while still pending
+    // The interval found a tick already in flight each time and skipped itself,
+    // rather than piling up overlapping requests.
+    expect(fetchCalls).toHaveLength(4);
+
+    for (const resolve of pending.splice(0)) resolve(jsonResponse([]));
+    await vi.advanceTimersByTimeAsync(0); // the first tick finally settles
+
+    fetchCalls = [];
+    await vi.advanceTimersByTimeAsync(1000); // the interval is free to run again
+    expect(fetchCalls).toHaveLength(4);
+  });
+
+  it("abandons a hung request after the poll timeout, without blocking future ticks", async () => {
+    fetchImpl = () => new Promise(() => {}); // never resolves
+    start({ pollTimeoutMs: 3000, pollIntervalMs: 10_000 });
+
+    await vi.advanceTimersByTimeAsync(3000); // the timeout fires for every endpoint
+    expect(onStatusChange).toHaveBeenLastCalledWith("down");
+
+    fetchImpl = (url: string) => {
+      const endpoint = url.split("/").pop() as FrmEndpoint;
+      return Promise.resolve(jsonResponse(FRM_PUSH[endpoint]));
+    };
+    await vi.advanceTimersByTimeAsync(10_000); // the next tick, now healthy again
+
+    expect(onStatusChange).toHaveBeenLastCalledWith("live");
+  });
+
   it("stops reconnecting once closed", async () => {
     start();
     await vi.advanceTimersByTimeAsync(0);

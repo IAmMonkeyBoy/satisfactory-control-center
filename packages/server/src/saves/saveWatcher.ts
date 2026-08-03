@@ -60,6 +60,18 @@ export interface SaveWatcher {
    */
   heldSave(): HeldSave | null;
   /**
+   * Re-run the disposition decision now, without waiting for a filesystem
+   * event. A held save's disposition depends on `liveSessionName()` and the
+   * store's followed session as much as on the save's own bytes — and those
+   * can change with no file ever touching disk (FRM going down, or switching
+   * to a different session). Without this, a save held while FRM streamed one
+   * session would stay held forever once FRM drops, even though "with FRM
+   * down, newest save wins outright" says it should now merge (spec,
+   * "Followed session and merge rules"). Cheap to call liberally — it's the
+   * same coalesced `runRefresh` a filesystem event triggers.
+   */
+  reevaluate(): void;
+  /**
    * Resolves once any debounce and refresh in flight have finished. Filesystem
    * watching is asynchronous by nature; this is how a caller waits for it to
    * catch up with writes that have already landed.
@@ -94,6 +106,55 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
   let rerunRequested = false;
   let closed = false;
 
+  /**
+   * Commit a parsed save as the new baseline, resetting first if it moves the
+   * followed session. Shared by a freshly-parsed save and by a previously-held
+   * one reconsidered into mergeable without touching disk again.
+   */
+  function commitBaseline(save: {
+    path: string;
+    header: SaveHeader;
+    baseline: BaselineDomains;
+  }): void {
+    if (save.header.sessionName !== options.store.followedSessionName()) {
+      // A silent full reset: no cross-session history, nothing merged across.
+      emit({
+        type: "sessionChanged",
+        from: options.store.followedSessionName(),
+        to: save.header.sessionName,
+      });
+      options.store.reset();
+    }
+
+    options.store.applyBaseline(save.baseline, save.header);
+    held = null;
+    emit({
+      type: "baseline",
+      path: save.path,
+      sessionName: save.header.sessionName,
+      saveDateTime: save.header.saveDateTime,
+    });
+  }
+
+  /**
+   * Re-decide the currently held save (if any) against the live/followed
+   * session as they stand right now, promoting it to the baseline if its
+   * disposition has flipped to "merged" — without re-reading or re-parsing
+   * bytes that haven't changed.
+   */
+  function reconsiderHeld(): void {
+    if (!held) return;
+
+    const { disposition } = decideDisposition({
+      sessionName: held.header.sessionName,
+      liveSessionName: liveSessionName(),
+      followedSessionName: options.store.followedSessionName(),
+    });
+    if (disposition === "held") return; // still held; nothing has changed for it
+
+    commitBaseline(held);
+  }
+
   async function refresh(): Promise<void> {
     const candidates = await scanHeaders(options.directory, emit);
     const choice = chooseBaselineSave({
@@ -104,7 +165,10 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
     if (!choice) return;
 
     const { save } = choice;
-    if (save.path === examinedPath && save.header.saveDateTime === examinedSaveDateTime) return;
+    if (save.path === examinedPath && save.header.saveDateTime === examinedSaveDateTime) {
+      reconsiderHeld();
+      return;
+    }
 
     let validated;
     try {
@@ -132,7 +196,7 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
     // in that time the rotating autosave slot can have been overwritten by a
     // different save, or the live feed can have switched sessions — either of
     // which would make the decision taken at scan time the wrong one to commit.
-    const { disposition, sessionChanged } = decideDisposition({
+    const { disposition } = decideDisposition({
       sessionName: validated.header.sessionName,
       liveSessionName: liveSessionName(),
       followedSessionName: options.store.followedSessionName(),
@@ -151,24 +215,7 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
       return;
     }
 
-    if (sessionChanged) {
-      // A silent full reset: no cross-session history, nothing merged across.
-      emit({
-        type: "sessionChanged",
-        from: options.store.followedSessionName(),
-        to: validated.header.sessionName,
-      });
-      options.store.reset();
-    }
-
-    options.store.applyBaseline(baseline, validated.header);
-    held = null;
-    emit({
-      type: "baseline",
-      path: save.path,
-      sessionName: validated.header.sessionName,
-      saveDateTime: validated.header.saveDateTime,
-    });
+    commitBaseline({ path: save.path, header: validated.header, baseline });
   }
 
   /** Run a refresh, coalescing any request that arrives while one is in flight. */
@@ -224,6 +271,9 @@ export async function startSaveWatcher(options: SaveWatcherOptions): Promise<Sav
   return {
     heldSave(): HeldSave | null {
       return held;
+    },
+    reevaluate(): void {
+      runRefresh();
     },
     async settled(): Promise<void> {
       // Give a just-written file time to trip the debounce, then drain whatever

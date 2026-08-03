@@ -66,10 +66,17 @@ interface LiveDomainEntry<T> {
  *  the live feed has supplied on top. */
 interface StoreState {
   followedSessionName: string | null;
-  baseline: { capturedAt: number; domains: BaselineDomains };
-  /** `connected` gates whether live entries are trusted at all — `clearLive`
-   *  flips it off without discarding `followedSessionName`, since the session
-   *  being followed doesn't change just because its transport did. */
+  /** `exists` is false until the first save is accepted — distinct from a save
+   *  genuinely captured at epoch 0. Without it, a session known only from FRM
+   *  (no save has ever been parsed for it) would report a fabricated baseline
+   *  at `capturedAt: 0` the moment `clearLive` runs, rather than admitting no
+   *  baseline backs it. */
+  baseline: { exists: boolean; capturedAt: number; domains: BaselineDomains };
+  /** `connected` gates whether live entries are *authoritative* — `clearLive`
+   *  flips it off without discarding `followedSessionName` or the entries
+   *  themselves, since the session being followed doesn't change just because
+   *  its transport did, and a stale-but-real live reading is more honest than
+   *  a fabricated baseline when there is no baseline to fall back to. */
   live: {
     connected: boolean;
     /** When the most recent live push of any kind landed, independent of which
@@ -84,22 +91,50 @@ interface StoreState {
 function emptyState(): StoreState {
   return {
     followedSessionName: null,
-    baseline: { capturedAt: 0, domains: emptyBaselineDomains() },
+    baseline: { exists: false, capturedAt: 0, domains: emptyBaselineDomains() },
     live: { connected: false, lastMessageAt: 0 },
   };
 }
 
-/** Resolve one domain's data and tag, preferring the live entry when connected. */
+/**
+ * The source/age tag for one piece of data, given what's available for it.
+ * Live wins while connected; baseline wins once live drops, but only when a
+ * baseline genuinely exists — a session confirmed purely by FRM, disconnected
+ * before any save was ever accepted for it, has no baseline to fall back to,
+ * so the last live reading (now aging, honestly) is reported instead of a
+ * fabricated `capturedAt: 0` baseline. Only when neither has ever reported
+ * anything does this fall through to the empty baseline default, matching the
+ * pre-any-ingestor startup state.
+ */
+function resolveTag(
+  hasLive: boolean,
+  liveConnected: boolean,
+  liveCapturedAt: number,
+  baselineExists: boolean,
+  baselineCapturedAt: number,
+): { source: Source; capturedAt: number } {
+  if (liveConnected && hasLive) return { source: "live", capturedAt: liveCapturedAt };
+  if (baselineExists) return { source: "baseline", capturedAt: baselineCapturedAt };
+  if (hasLive) return { source: "live", capturedAt: liveCapturedAt };
+  return { source: "baseline", capturedAt: baselineCapturedAt };
+}
+
+/** Resolve one domain's data alongside its tag, via {@link resolveTag}. */
 function resolveDomain<T>(
   live: LiveDomainEntry<T> | undefined,
-  connected: boolean,
+  liveConnected: boolean,
+  baselineExists: boolean,
   baselineData: T,
   baselineCapturedAt: number,
 ): { tag: { source: Source; capturedAt: number }; data: T } {
-  if (connected && live) {
-    return { tag: { source: "live", capturedAt: live.capturedAt }, data: live.data };
-  }
-  return { tag: { source: "baseline", capturedAt: baselineCapturedAt }, data: baselineData };
+  const tag = resolveTag(
+    live !== undefined,
+    liveConnected,
+    live?.capturedAt ?? 0,
+    baselineExists,
+    baselineCapturedAt,
+  );
+  return tag.source === "live" && live ? { tag, data: live.data } : { tag, data: baselineData };
 }
 
 export function createWorldStateStore(): WorldStateStore {
@@ -113,18 +148,21 @@ export function createWorldStateStore(): WorldStateStore {
       const power = resolveDomain(
         live.power,
         live.connected,
+        baseline.exists,
         baseline.domains.power satisfies PowerState,
         baseline.capturedAt,
       );
       const production = resolveDomain(
         live.production,
         live.connected,
+        baseline.exists,
         baseline.domains.production satisfies ProductionState,
         baseline.capturedAt,
       );
       const storage = resolveDomain(
         live.storage,
         live.connected,
+        baseline.exists,
         baseline.domains.storage satisfies StorageState,
         baseline.capturedAt,
       );
@@ -136,8 +174,13 @@ export function createWorldStateStore(): WorldStateStore {
             ? null
             : {
                 sessionName: followedSessionName,
-                source: live.connected ? "live" : "baseline",
-                capturedAt: live.connected ? live.lastMessageAt : baseline.capturedAt,
+                ...resolveTag(
+                  live.lastMessageAt > 0,
+                  live.connected,
+                  live.lastMessageAt,
+                  baseline.exists,
+                  baseline.capturedAt,
+                ),
               },
         power,
         production,
@@ -153,7 +196,7 @@ export function createWorldStateStore(): WorldStateStore {
       state = {
         ...state,
         followedSessionName: header.sessionName,
-        baseline: { capturedAt: header.saveDateTime, domains: baseline },
+        baseline: { exists: true, capturedAt: header.saveDateTime, domains: baseline },
       };
     },
 
@@ -173,7 +216,12 @@ export function createWorldStateStore(): WorldStateStore {
     },
 
     clearLive(): void {
-      state = { ...state, live: { connected: false, lastMessageAt: state.live.lastMessageAt } };
+      // Only the `connected` flag flips: the entries themselves stay, as the
+      // last-resort fallback `resolveTag`/`resolveDomain` use when there is no
+      // baseline yet to fall back to instead. A later `applyLiveDomains` for
+      // the same session overwrites them; a session change goes through
+      // `reset`, which drops them for real.
+      state = { ...state, live: { ...state.live, connected: false } };
     },
 
     reset(): void {

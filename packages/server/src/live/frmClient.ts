@@ -62,6 +62,9 @@ export interface FrmClientOptions {
   endpoints?: readonly FrmEndpoint[];
   /** How often to poll each endpoint over HTTP while the socket is down. */
   pollIntervalMs?: number;
+  /** How long a single endpoint request may take before it's abandoned as
+   *  unreachable, so one hung request can't stall every future poll tick. */
+  pollTimeoutMs?: number;
   /** How long to wait between WebSocket reconnect attempts. */
   reconnectDelayMs?: number;
   /** Override the socket constructor; tests inject a fake. */
@@ -83,6 +86,7 @@ export interface FrmClient {
  *  their own override (e.g. `index.ts`'s `SCC_FRM_PORT`) share one definition. */
 export const DEFAULT_PORT = 8080;
 const DEFAULT_POLL_INTERVAL_MS = 5000;
+const DEFAULT_POLL_TIMEOUT_MS = 5000;
 const DEFAULT_RECONNECT_DELAY_MS = 5000;
 
 export function startFrmClient(options: FrmClientOptions): FrmClient {
@@ -90,6 +94,7 @@ export function startFrmClient(options: FrmClientOptions): FrmClient {
   const port = options.port ?? DEFAULT_PORT;
   const endpoints = options.endpoints ?? ALL_ENDPOINTS;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const pollTimeoutMs = options.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
   const reconnectDelayMs = options.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
   const createSocket = options.createSocket ?? ((url: string) => new WebSocket(url));
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -104,6 +109,12 @@ export function startFrmClient(options: FrmClientOptions): FrmClient {
   let wsOpen = false;
   let reconnectTimer: NodeJS.Timeout | undefined;
   let pollTimer: NodeJS.Timeout | undefined;
+  /** True for the duration of one poll tick. A tick that outruns the interval
+   *  (a slow or hung endpoint) must not overlap with the next one — besides
+   *  the wasted requests, an older tick resolving after a newer one would
+   *  stamp stale data with a `capturedAt` *later* than the fresher data it
+   *  raced against, silently regressing WorldState. */
+  let pollInFlight = false;
   let status: FrmStatus | undefined;
 
   function setStatus(next: FrmStatus): void {
@@ -138,28 +149,40 @@ export function startFrmClient(options: FrmClientOptions): FrmClient {
   }
 
   async function pollTick(): Promise<void> {
-    const results = await Promise.allSettled(
-      endpoints.map(async (endpoint) => {
-        const response = await fetchImpl(`http://${host}:${port}/${endpoint}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data: unknown = await response.json();
-        return { endpoint, data };
-      }),
-    );
+    // Never run two ticks at once (see `pollInFlight`'s doc comment): the
+    // interval's next firing simply finds this still true and skips itself,
+    // catching up again once the current tick — or its timeout — finishes.
+    if (pollInFlight) return;
+    pollInFlight = true;
+    try {
+      const results = await Promise.allSettled(
+        endpoints.map(async (endpoint) => {
+          const response = await withTimeout(
+            fetchImpl(`http://${host}:${port}/${endpoint}`),
+            pollTimeoutMs,
+          );
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data: unknown = await response.json();
+          return { endpoint, data };
+        }),
+      );
 
-    // The socket may have come back up mid-poll; a push-driven client is
-    // already the source of truth, so a poll tick in flight when that happens
-    // must not downgrade status behind its back.
-    if (wsOpen) return;
+      // The socket may have come back up mid-poll; a push-driven client is
+      // already the source of truth, so a poll tick in flight when that
+      // happens must not downgrade status behind its back.
+      if (wsOpen) return;
 
-    const capturedAt = Date.now();
-    let reachable = false;
-    for (const result of results) {
-      if (result.status !== "fulfilled") continue;
-      reachable = true;
-      options.onData(result.value.endpoint, result.value.data, capturedAt);
+      const capturedAt = Date.now();
+      let reachable = false;
+      for (const result of results) {
+        if (result.status !== "fulfilled") continue;
+        reachable = true;
+        options.onData(result.value.endpoint, result.value.data, capturedAt);
+      }
+      setStatus(reachable ? "live" : "down");
+    } finally {
+      pollInFlight = false;
     }
-    setStatus(reachable ? "live" : "down");
   }
 
   function connectSocket(): void {
@@ -249,4 +272,27 @@ function parseEnvelope(raw: unknown): { endpoint: FrmEndpoint; data: unknown } |
 
 function isFrmEndpoint(value: string): value is FrmEndpoint {
   return (ALL_ENDPOINTS as readonly string[]).includes(value);
+}
+
+/**
+ * Race a promise against a timeout, so one endpoint that never answers can't
+ * hold a poll tick open indefinitely. This doesn't cancel the underlying
+ * request — `fetchImpl` isn't guaranteed to honor an abort signal — it just
+ * stops waiting on it; the abandoned request's eventual settlement (if any)
+ * is ignored.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (cause: unknown) => {
+        clearTimeout(timer);
+        reject(cause instanceof Error ? cause : new Error(errorMessage(cause)));
+      },
+    );
+  });
 }
