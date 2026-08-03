@@ -9,8 +9,28 @@
 @theme {
   /* FICSIT-informed accent (original palette, not extracted assets). */
   --color-ficsit-orange: #f2a33c;
+
+  /* Dark metal surfaces for panels over the map backdrop. */
+  --color-metal-950: #0d0d0c;
+  --color-metal-900: #171715;
+  --color-metal-800: #201f1d;
+
+  /* Alarm severities — never the only signal (icon/text always pairs with color),
+     but bright enough to read from across the room. */
+  --color-alarm-warning: #fab219;
+  --color-alarm-critical: #e0433f;
 }
 
 :root {
   color-scheme: dark;
+}
+
+@keyframes alarm-pulse {
+  50% {
+    background-color: rgb(224 67 63 / 0.16);
+  }
+}
+
+.animate-alarm-pulse {
+  animation: alarm-pulse 1.2s ease-in-out infinite;
 }

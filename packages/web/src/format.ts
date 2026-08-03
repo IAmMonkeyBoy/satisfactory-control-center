@@ -23,3 +23,13 @@ export function ageLabel(tag: SourceAgeTag, now: number): string {
   const minutes = Math.round(seconds / 60);
   return `${minutes} min old`;
 }
+
+/** A duration for display (battery time-to-empty and similar), not a clock time. */
+export function formatDuration(ms: number): string {
+  if (ms < 60_000) return "under 1 min";
+  const totalMinutes = Math.round(ms / 60_000);
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${minutes}m`;
+}
