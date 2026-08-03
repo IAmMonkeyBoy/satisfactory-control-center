@@ -247,10 +247,16 @@ export function startFrmClient(options: FrmClientOptions): FrmClient {
 
 /**
  * Decode one WebSocket frame into the endpoint it names and the payload FRM
- * sent for it, or undefined for anything that doesn't parse as the documented
- * `{ endpoint, data }` envelope — including pushes for endpoints this client
- * never subscribed to, which a shared FRM connection could in principle still
- * deliver.
+ * sent for it, or undefined for anything that doesn't parse as either shape
+ * FRM actually pushes.
+ *
+ * Every subscribed endpoint arrives wrapped as the documented
+ * `{ endpoint, data }` envelope — except `getSessionInfo`, confirmed against a
+ * running FRM instance to push the raw session object with no envelope at
+ * all (no `endpoint` field, just `SessionName` and its siblings directly).
+ * That asymmetry is FRM's own, not a bug in a particular mod version to work
+ * around narrowly, so it's handled here as a second recognized shape rather
+ * than requiring every push to carry an `endpoint` field.
  */
 function parseEnvelope(raw: unknown): { endpoint: FrmEndpoint; data: unknown } | undefined {
   if (typeof raw !== "string") return undefined;
@@ -264,10 +270,18 @@ function parseEnvelope(raw: unknown): { endpoint: FrmEndpoint; data: unknown } |
 
   const record =
     typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : undefined;
-  const endpoint = record?.endpoint;
-  if (typeof endpoint !== "string" || !isFrmEndpoint(endpoint)) return undefined;
+  if (!record) return undefined;
 
-  return { endpoint, data: record?.data };
+  const endpoint = record.endpoint;
+  if (typeof endpoint === "string" && isFrmEndpoint(endpoint)) {
+    return { endpoint, data: record.data };
+  }
+
+  if (typeof record.SessionName === "string") {
+    return { endpoint: "getSessionInfo", data: record };
+  }
+
+  return undefined;
 }
 
 function isFrmEndpoint(value: string): value is FrmEndpoint {
