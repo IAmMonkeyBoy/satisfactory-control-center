@@ -170,14 +170,18 @@ function FollowingIndicator({
   worldState: WorldState;
   now: number;
 }): JSX.Element {
-  // Summarize freshness from the liveliest domain the UI leads with.
+  const { followedSession } = worldState;
   return (
     <div className="rounded-md border border-neutral-800 bg-neutral-900/60 px-4 py-2 text-sm text-neutral-300">
       <span className="font-medium text-neutral-100">
-        {worldState.followedSession?.sessionName ?? "No session yet"}
+        {followedSession?.sessionName ?? "No session yet"}
       </span>
-      <span className="text-neutral-500"> · </span>
-      <FreshnessTag tag={worldState.power.tag} now={now} />
+      {followedSession && (
+        <>
+          <span className="text-neutral-500"> · </span>
+          <FreshnessTag tag={followedSession} now={now} />
+        </>
+      )}
     </div>
   );
 }

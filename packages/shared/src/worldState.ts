@@ -106,8 +106,19 @@ export const milestonesStateSchema = z.object({
 });
 export type MilestonesState = z.infer<typeof milestonesStateSchema>;
 
-/** The session WorldState currently describes (the following indicator's data). */
-export const followedSessionSchema = z.object({ sessionName: z.string() });
+/**
+ * The session WorldState currently describes (the following indicator's data).
+ * `source`/`capturedAt` carry the same freshness meaning as a domain's tag, but
+ * describe the session identity itself: `live` while the FRM session is the one
+ * being followed, `baseline` when the newest save is (CONTEXT.md, "Followed
+ * session"). Individual domains can still disagree — a save-only domain stays
+ * `baseline`-tagged even while the session itself is followed live.
+ */
+export const followedSessionSchema = z.object({
+  sessionName: z.string(),
+  source: sourceSchema,
+  capturedAt: z.number(),
+});
 export type FollowedSession = z.infer<typeof followedSessionSchema>;
 
 /**
