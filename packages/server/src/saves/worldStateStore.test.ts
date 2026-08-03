@@ -28,7 +28,7 @@ describe("worldStateStore", () => {
 
     expect(ws.followedSession).toBeNull();
     expect(store.followedSessionName()).toBeNull();
-    for (const domain of [ws.power, ws.production, ws.storage, ws.milestones]) {
+    for (const domain of [ws.power, ws.production, ws.machines, ws.storage, ws.milestones]) {
       expect(domain.tag).toEqual({ source: "baseline", capturedAt: 0 });
     }
   });
@@ -111,12 +111,39 @@ describe("worldStateStore", () => {
       );
 
       const ws = store.snapshot(9_500);
-      // Power went live; production and storage stay baseline until their own push.
+      // Power went live; production, machines and storage stay baseline until
+      // their own push.
       expect(ws.power.tag.source).toBe("live");
       expect(ws.production.tag).toEqual({ source: "baseline", capturedAt: 1_000 });
       expect(ws.production.data.items[0]?.maxPerMin).toBe(60);
+      expect(ws.machines.tag).toEqual({ source: "baseline", capturedAt: 1_000 });
       expect(ws.storage.tag).toEqual({ source: "baseline", capturedAt: 1_000 });
       expect(ws.storage.data.items[0]?.count).toBe(500);
+    });
+
+    it("prefers a live machines rollup over the baseline once FRM's getFactory has supplied it", () => {
+      store.applyLiveDomains(
+        {
+          machines: {
+            machines: [
+              {
+                className: "Build_ConstructorMk1_C",
+                displayName: "Constructor",
+                totalCount: 2,
+                producingCount: 1,
+                idleCount: 0,
+                pausedCount: 1,
+                averageEfficiencyPercent: 50,
+              },
+            ],
+          },
+        },
+        { sessionName: "Random Defaults", capturedAt: 9_000 },
+      );
+
+      const ws = store.snapshot(9_500);
+      expect(ws.machines.tag).toEqual({ source: "live", capturedAt: 9_000 });
+      expect(ws.machines.data.machines[0]?.pausedCount).toBe(1);
     });
 
     it("never gives milestones a live source — FRM doesn't expose it in this build", () => {

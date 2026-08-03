@@ -64,6 +64,7 @@ const FRM_PUSH: Record<FrmEndpoint, unknown> = {
   getSessionInfo: { SessionName: "Random Defaults" },
   getPower: [{ CircuitGroupID: 0, PowerCapacity: 100 }],
   getProdStats: [],
+  getFactory: [],
   getStorageInv: [],
 };
 
@@ -125,7 +126,7 @@ describe("startFrmClient", () => {
 
     expect(JSON.parse(sockets[0]!.sent[0]!)).toEqual({
       action: "subscribe",
-      endpoints: ["getSessionInfo", "getPower", "getProdStats", "getStorageInv"],
+      endpoints: ["getSessionInfo", "getPower", "getProdStats", "getFactory", "getStorageInv"],
     });
     expect(onStatusChange).toHaveBeenCalledWith("live");
   });
@@ -166,7 +167,7 @@ describe("startFrmClient", () => {
     onData.mockClear();
 
     sockets[0]!.message("not json");
-    sockets[0]!.message(JSON.stringify({ endpoint: "getFactory", data: [] })); // not subscribed
+    sockets[0]!.message(JSON.stringify({ endpoint: "getTrains", data: [] })); // not subscribed
     sockets[0]!.message(JSON.stringify({ noEndpoint: true }));
 
     expect(onData).not.toHaveBeenCalled();
@@ -253,20 +254,20 @@ describe("startFrmClient", () => {
     };
     start({ pollIntervalMs: 1000, pollTimeoutMs: 60_000 });
 
-    await vi.advanceTimersByTimeAsync(0); // the first tick starts; 4 requests in flight
-    expect(fetchCalls).toHaveLength(4);
+    await vi.advanceTimersByTimeAsync(0); // the first tick starts; 5 requests in flight
+    expect(fetchCalls).toHaveLength(5);
 
     await vi.advanceTimersByTimeAsync(5000); // several interval periods elapse while still pending
     // The interval found a tick already in flight each time and skipped itself,
     // rather than piling up overlapping requests.
-    expect(fetchCalls).toHaveLength(4);
+    expect(fetchCalls).toHaveLength(5);
 
     for (const resolve of pending.splice(0)) resolve(jsonResponse([]));
     await vi.advanceTimersByTimeAsync(0); // the first tick finally settles
 
     fetchCalls = [];
     await vi.advanceTimersByTimeAsync(1000); // the interval is free to run again
-    expect(fetchCalls).toHaveLength(4);
+    expect(fetchCalls).toHaveLength(5);
   });
 
   it("abandons a hung request after the poll timeout, without blocking future ticks", async () => {

@@ -17,14 +17,23 @@
 import { errorMessage } from "../errorMessage.ts";
 
 /** The FRM endpoints this build's WorldState domains can use, plus session
- *  identity. `getFactory` and `getTrains` have no domain to land in yet
- *  (see `frmDomains.ts`) and are deliberately not subscribed. */
-export type FrmEndpoint = "getSessionInfo" | "getPower" | "getProdStats" | "getStorageInv";
+ *  identity. `getTrains` has no domain to land in yet (see `frmDomains.ts`)
+ *  and is deliberately not subscribed.
+ *
+ *  `getFactory` is one of the "heavy" endpoints the spec warns can hitch a
+ *  large save (spec, "Ingestor 1: FRM client") — this module already
+ *  addresses that the way the spec asks, by preferring the WebSocket push
+ *  over polling and keeping the shared poll interval at FRM's own default
+ *  cadence (~5 s) rather than tightening it; nothing here polls faster just
+ *  because `getFactory` joined the subscription list. */
+export type FrmEndpoint =
+  "getSessionInfo" | "getPower" | "getProdStats" | "getFactory" | "getStorageInv";
 
 const ALL_ENDPOINTS: readonly FrmEndpoint[] = [
   "getSessionInfo",
   "getPower",
   "getProdStats",
+  "getFactory",
   "getStorageInv",
 ];
 

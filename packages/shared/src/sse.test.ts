@@ -9,6 +9,7 @@ function validWorldState(): WorldState {
     followedSession: { sessionName: "Test Session", source: "live", capturedAt: 1000 },
     power: { tag, data: { circuits: [] } },
     production: { tag, data: { items: [] } },
+    machines: { tag, data: { machines: [] } },
     storage: { tag, data: { items: [] } },
     milestones: {
       tag,

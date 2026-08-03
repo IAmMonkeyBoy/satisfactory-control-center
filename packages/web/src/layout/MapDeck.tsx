@@ -6,6 +6,7 @@ import { ConnectionBadge } from "../panels/ConnectionBadge";
 import { FollowingIndicator } from "../panels/FollowingIndicator";
 import { PlaceholderPanel } from "../panels/PlaceholderPanel";
 import { PowerPanel } from "../panels/PowerPanel";
+import { ProductionPanel } from "../panels/ProductionPanel";
 import type { ConnectionStatus } from "../useWorldState";
 import { MapSlot } from "./MapSlot";
 
@@ -51,11 +52,7 @@ export function MapDeck({
           </div>
         </div>
 
-        <PlaceholderPanel
-          title="Production"
-          note="Production efficiency ticker arrives in Build 5."
-          className="flex-none"
-        />
+        {worldState && <ProductionPanel worldState={worldState} now={now} className="flex-none" />}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapPower, mapProduction, mapSessionName, mapStorage } from "./frmDomains.ts";
+import { mapMachines, mapPower, mapProduction, mapSessionName, mapStorage } from "./frmDomains.ts";
 
 describe("mapPower", () => {
   it("maps a getPower circuit into the power domain shape", () => {
@@ -99,6 +99,103 @@ describe("mapProduction", () => {
 
   it("degrades to an empty domain on a malformed payload", () => {
     expect(mapProduction("nope").items).toEqual([]);
+  });
+});
+
+describe("mapMachines", () => {
+  it("rolls up one machine into its building-class group", () => {
+    const raw = [
+      {
+        ClassName: "Build_ConstructorMk1_C",
+        Name: "Constructor",
+        IsConfigured: true,
+        IsProducing: true,
+        IsPaused: false,
+        Productivity: 100,
+      },
+    ];
+
+    expect(mapMachines(raw)).toEqual({
+      machines: [
+        {
+          className: "Build_ConstructorMk1_C",
+          displayName: "Constructor",
+          totalCount: 1,
+          producingCount: 1,
+          idleCount: 0,
+          pausedCount: 0,
+          averageEfficiencyPercent: 100,
+        },
+      ],
+    });
+  });
+
+  it("splits a class's machines across producing, idle, and paused", () => {
+    const raw = [
+      { ClassName: "Build_ConstructorMk1_C", IsConfigured: true, IsProducing: true },
+      { ClassName: "Build_ConstructorMk1_C", IsConfigured: true, IsProducing: false },
+      { ClassName: "Build_ConstructorMk1_C", IsConfigured: true, IsPaused: true },
+    ];
+
+    const [group] = mapMachines(raw).machines;
+    expect(group).toMatchObject({ totalCount: 3, producingCount: 1, idleCount: 1, pausedCount: 1 });
+  });
+
+  it("counts a paused machine's zero productivity into the class average, not as missing data", () => {
+    // This is what makes a machine switched off in-game show up in the
+    // rollup's efficiency figure, not just its own paused count.
+    const raw = [
+      {
+        ClassName: "Build_ConstructorMk1_C",
+        IsConfigured: true,
+        IsProducing: true,
+        Productivity: 100,
+      },
+      { ClassName: "Build_ConstructorMk1_C", IsConfigured: true, IsPaused: true, Productivity: 0 },
+    ];
+
+    expect(mapMachines(raw).machines[0]?.averageEfficiencyPercent).toBe(50);
+  });
+
+  it("excludes an unconfigured machine's productivity from the average", () => {
+    const raw = [
+      {
+        ClassName: "Build_ConstructorMk1_C",
+        IsConfigured: true,
+        IsProducing: true,
+        Productivity: 80,
+      },
+      { ClassName: "Build_ConstructorMk1_C", IsConfigured: false, Productivity: 0 },
+    ];
+
+    const [group] = mapMachines(raw).machines;
+    expect(group).toMatchObject({ totalCount: 2, idleCount: 1, averageEfficiencyPercent: 80 });
+  });
+
+  it("reports no efficiency figure when nothing configured has ever reported productivity", () => {
+    const raw = [{ ClassName: "Build_ConstructorMk1_C", IsConfigured: false }];
+    expect(mapMachines(raw).machines[0]?.averageEfficiencyPercent).toBeNull();
+  });
+
+  it("drops a machine with no ClassName", () => {
+    expect(mapMachines([{ IsProducing: true }]).machines).toEqual([]);
+  });
+
+  it("sorts by total count descending, className breaking ties", () => {
+    const raw = [
+      { ClassName: "Build_SmelterMk1_C" },
+      { ClassName: "Build_ConstructorMk1_C" },
+      { ClassName: "Build_ConstructorMk1_C" },
+    ];
+    expect(mapMachines(raw).machines.map((m) => m.className)).toEqual([
+      "Build_ConstructorMk1_C",
+      "Build_SmelterMk1_C",
+    ]);
+  });
+
+  it("degrades to an empty domain on a malformed payload", () => {
+    expect(mapMachines(null).machines).toEqual([]);
+    expect(mapMachines("nope").machines).toEqual([]);
   });
 });
 

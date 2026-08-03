@@ -156,6 +156,57 @@ describe("production baseline", () => {
   });
 });
 
+describe("machines baseline", () => {
+  it("counts machines per building class from those with a recipe configured", () => {
+    const baseline = baselineOf([
+      machine("Build_ConstructorMk1_C_1", "Recipe_IronPlate_C"),
+      machine("Build_ConstructorMk1_C_2", "Recipe_IronPlate_C"),
+    ]);
+
+    expect(baseline.machines.machines).toEqual([
+      {
+        className: "Build_ConstructorMk1_C",
+        displayName: "Constructor",
+        totalCount: 2,
+        producingCount: null,
+        idleCount: null,
+        pausedCount: null,
+        averageEfficiencyPercent: null,
+      },
+    ]);
+  });
+
+  it("skips a machine with no recipe set — a save can't tell an idle machine from an unbuilt one", () => {
+    const baseline = baselineOf([machine("Build_ConstructorMk1_C_1", null)]);
+
+    expect(baseline.machines.machines).toEqual([]);
+  });
+
+  it("falls back to the class name for a building the dump does not cover", () => {
+    const baseline = baselineOf([machine("Build_ModdedMachine_C_1", "Recipe_IronPlate_C")]);
+
+    expect(baseline.machines.machines).toEqual([
+      expect.objectContaining({
+        className: "Build_ModdedMachine_C",
+        displayName: "Build_ModdedMachine_C",
+      }),
+    ]);
+  });
+
+  it("orders machine classes by total count descending, className breaking ties", () => {
+    const baseline = baselineOf([
+      machine("Build_ConstructorMk1_C_1", "Recipe_IronPlate_C"),
+      machine("Build_SmelterMk1_C_1", "Recipe_IronPlate_C"),
+      machine("Build_SmelterMk1_C_2", "Recipe_IronPlate_C"),
+    ]);
+
+    expect(baseline.machines.machines.map((m) => m.className)).toEqual([
+      "Build_SmelterMk1_C",
+      "Build_ConstructorMk1_C",
+    ]);
+  });
+});
+
 describe("milestones baseline", () => {
   it("names the current milestone and Space Elevator phase", () => {
     const baseline = baselineOf([
@@ -186,5 +237,6 @@ describe("a save with nothing recognisable in it", () => {
     expect(baseline.power.circuits).toEqual([]);
     expect(baseline.storage.items).toEqual([]);
     expect(baseline.production.items).toEqual([]);
+    expect(baseline.machines.machines).toEqual([]);
   });
 });

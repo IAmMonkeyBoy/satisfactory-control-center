@@ -16,6 +16,7 @@
  * what it's told and never second-guesses it.
  */
 import type {
+  MachinesState,
   MilestonesState,
   PowerState,
   ProductionState,
@@ -31,6 +32,7 @@ import type { SaveHeader } from "./saveHeader.ts";
 export interface LiveDomainUpdate {
   power?: PowerState;
   production?: ProductionState;
+  machines?: MachinesState;
   storage?: StorageState;
 }
 
@@ -84,6 +86,7 @@ interface StoreState {
     lastMessageAt: number;
     power?: LiveDomainEntry<PowerState>;
     production?: LiveDomainEntry<ProductionState>;
+    machines?: LiveDomainEntry<MachinesState>;
     storage?: LiveDomainEntry<StorageState>;
   };
 }
@@ -159,6 +162,13 @@ export function createWorldStateStore(): WorldStateStore {
         baseline.domains.production satisfies ProductionState,
         baseline.capturedAt,
       );
+      const machines = resolveDomain(
+        live.machines,
+        live.connected,
+        baseline.exists,
+        baseline.domains.machines satisfies MachinesState,
+        baseline.capturedAt,
+      );
       const storage = resolveDomain(
         live.storage,
         live.connected,
@@ -184,6 +194,7 @@ export function createWorldStateStore(): WorldStateStore {
               },
         power,
         production,
+        machines,
         storage,
         milestones: {
           tag: baselineTag,
@@ -210,6 +221,7 @@ export function createWorldStateStore(): WorldStateStore {
           lastMessageAt: args.capturedAt,
           power: update.power ? entry(update.power) : state.live.power,
           production: update.production ? entry(update.production) : state.live.production,
+          machines: update.machines ? entry(update.machines) : state.live.machines,
           storage: update.storage ? entry(update.storage) : state.live.storage,
         },
       };

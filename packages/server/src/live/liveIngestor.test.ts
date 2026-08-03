@@ -15,6 +15,15 @@ const POWER_PUSH = [
 const PROD_PUSH = [
   { ClassName: "Desc_IronPlate_C", Name: "Iron Plate", CurrentProd: 40, MaxProd: 60 },
 ];
+const FACTORY_PUSH = [
+  {
+    ClassName: "Build_ConstructorMk1_C",
+    Name: "Constructor",
+    IsConfigured: true,
+    IsProducing: true,
+    Productivity: 100,
+  },
+];
 const STORAGE_PUSH = [
   { Inventory: [{ ClassName: "Desc_IronPlate_C", Name: "Iron Plate", Amount: 12 }] },
 ];
@@ -77,6 +86,7 @@ describe("startLiveIngestor", () => {
     fake.handlers.onData("getSessionInfo", SESSION_INFO("Random Defaults"), 4_000);
     fake.handlers.onData("getPower", POWER_PUSH, 5_000);
     fake.handlers.onData("getProdStats", PROD_PUSH, 5_100);
+    fake.handlers.onData("getFactory", FACTORY_PUSH, 5_150);
     fake.handlers.onData("getStorageInv", STORAGE_PUSH, 5_200);
 
     const ws = store.snapshot(5_500);
@@ -84,6 +94,7 @@ describe("startLiveIngestor", () => {
     expect(ws.power.tag).toEqual({ source: "live", capturedAt: 5_000 });
     expect(ws.power.data.circuits[0]?.productionMW).toBe(10);
     expect(ws.production.data.items[0]?.currentPerMin).toBe(40);
+    expect(ws.machines.data.machines[0]?.producingCount).toBe(1);
     expect(ws.storage.data.items[0]?.count).toBe(12);
   });
 

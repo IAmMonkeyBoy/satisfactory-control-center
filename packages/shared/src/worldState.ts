@@ -88,6 +88,32 @@ export type ProductionItem = z.infer<typeof productionItemSchema>;
 export const productionStateSchema = z.object({ items: z.array(productionItemSchema) });
 export type ProductionState = z.infer<typeof productionStateSchema>;
 
+/**
+ * Machine efficiency domain — per-building-class rollups (FRM `getFactory`).
+ * `totalCount` is recoverable from a save (a machine with a recipe configured is
+ * a machine, whether or not the game is running); `producingCount`, `idleCount`,
+ * `pausedCount` and `averageEfficiencyPercent` are runtime state — whether a
+ * machine is actually running, starved, or manually paused — that only the live
+ * feed can answer, so a baseline reports them null rather than a fabricated
+ * zero, mirroring the power domain's live-only fields.
+ */
+export const machineRollupSchema = z.object({
+  className: z.string(),
+  displayName: z.string(),
+  totalCount: z.number(),
+  producingCount: z.number().nullable(),
+  idleCount: z.number().nullable(),
+  pausedCount: z.number().nullable(),
+  /** Average of FRM's per-machine `Productivity` (actual output vs. installed
+   *  rate) across configured machines of this class; null wherever no live
+   *  reading has ever covered this class. */
+  averageEfficiencyPercent: z.number().nullable(),
+});
+export type MachineRollup = z.infer<typeof machineRollupSchema>;
+
+export const machinesStateSchema = z.object({ machines: z.array(machineRollupSchema) });
+export type MachinesState = z.infer<typeof machinesStateSchema>;
+
 /** Storage domain — item totals across containers. */
 export const storageItemSchema = z.object({
   className: z.string(),
@@ -135,6 +161,7 @@ export const worldStateSchema = z.object({
   followedSession: followedSessionSchema.nullable(),
   power: domainSchema(powerStateSchema),
   production: domainSchema(productionStateSchema),
+  machines: domainSchema(machinesStateSchema),
   storage: domainSchema(storageStateSchema),
   milestones: domainSchema(milestonesStateSchema),
 });
