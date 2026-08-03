@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { createServer } from "./httpServer.js";
+import { boundPort } from "./testSupport.js";
 
 let server: Server | undefined;
 let dir: string;
@@ -27,7 +27,7 @@ afterEach(async () => {
 async function listen(): Promise<number> {
   server = createServer({ staticDir: dir });
   await new Promise<void>((resolve) => server!.listen(0, resolve));
-  return (server!.address() as AddressInfo).port;
+  return boundPort(server);
 }
 
 describe("static dashboard serving", () => {

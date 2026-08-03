@@ -41,7 +41,7 @@ export function createServer(options: ServerOptions = {}): http.Server {
     }
 
     if (req.method === "GET" && url.pathname === "/api/stream") {
-      handleStream(req, res, buildWorldState, pushIntervalMs);
+      handleStream(res, buildWorldState, pushIntervalMs);
       return;
     }
 
@@ -68,7 +68,6 @@ export function createServer(options: ServerOptions = {}): http.Server {
 }
 
 function handleStream(
-  req: http.IncomingMessage,
   res: http.ServerResponse,
   buildWorldState: (now: number) => WorldState,
   pushIntervalMs: number,
@@ -88,7 +87,11 @@ function handleStream(
   push();
   const timer = setInterval(push, pushIntervalMs);
 
-  req.on("close", () => {
+  // Tie cleanup to the *response* lifecycle. `req`'s "close" can fire as soon as
+  // the (bodyless) request finishes reading, which would tear down the stream
+  // after a single frame; `res`'s "close" fires when the connection to the client
+  // actually goes away — which is what we want to stop pushing on.
+  res.on("close", () => {
     clearInterval(timer);
   });
 }

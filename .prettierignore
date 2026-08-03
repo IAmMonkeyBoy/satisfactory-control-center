@@ -1,0 +1,8 @@
+# Prettier owns source formatting; prose docs are hand-authored and left alone.
+**/dist/**
+node_modules/
+package-lock.json
+*.tsbuildinfo
+**/*.md
+docs/
+archive/

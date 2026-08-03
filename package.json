@@ -2,21 +2,37 @@
   "name": "satisfactory-control-center",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Read-only companion dashboard for inspecting the live state of a Satisfactory game.",
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=22.0.0 <23"
+  },
   "workspaces": [
     "packages/shared",
     "packages/server",
     "packages/web"
   ],
   "scripts": {
+    "build:shared": "npm run build --workspace @scc/shared",
     "build": "npm run build --workspace @scc/shared && npm run build --workspace @scc/server && npm run build --workspace @scc/web",
     "dev": "npm run dev --workspace @scc/server & npm run dev --workspace @scc/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "pretest": "npm run build --workspace @scc/shared",
-    "test": "vitest run"
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "pretest": "npm run build:shared",
+    "test": "vitest run",
+    "check": "npm run build:shared && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "eslint": "^9.9.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.9.0",
+    "prettier": "^3.3.3",
     "typescript": "^5.5.4",
+    "typescript-eslint": "^8.2.0",
     "vitest": "^2.0.5"
   }
 }

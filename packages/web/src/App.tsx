@@ -122,9 +122,7 @@ function FollowingIndicator({
   // Summarize freshness from the liveliest domain the UI leads with.
   return (
     <div className="rounded-md border border-neutral-800 bg-neutral-900/60 px-4 py-2 text-sm text-neutral-300">
-      <span className="font-medium text-neutral-100">
-        {worldState.followedSession.sessionName}
-      </span>
+      <span className="font-medium text-neutral-100">{worldState.followedSession.sessionName}</span>
       <span className="text-neutral-500"> · </span>
       <FreshnessTag tag={worldState.power.tag} now={now} />
     </div>
@@ -154,9 +152,7 @@ function Panel({
   return (
     <section className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
       <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-300">
-          {title}
-        </h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-300">{title}</h2>
         <span className="text-xs text-neutral-500">
           <FreshnessTag tag={domain.tag} now={now} />
         </span>

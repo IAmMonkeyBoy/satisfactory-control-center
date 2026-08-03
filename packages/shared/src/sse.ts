@@ -8,16 +8,19 @@
  * envelope in the data field. The envelope is a discriminated union so later
  * slices can add delta pushes alongside the full snapshot without breaking clients.
  */
-import type { WorldState } from "./worldState.js";
+import { z } from "zod";
+import { worldStateSchema } from "./worldState.js";
 
 /** Full-snapshot push — the whole current WorldState. */
-export interface SnapshotEvent {
-  type: "snapshot";
-  worldState: WorldState;
-}
+export const snapshotEventSchema = z.object({
+  type: z.literal("snapshot"),
+  worldState: worldStateSchema,
+});
+export type SnapshotEvent = z.infer<typeof snapshotEventSchema>;
 
 /** Every message the server can push over the SSE stream. */
-export type ServerEvent = SnapshotEvent;
+export const serverEventSchema = z.discriminatedUnion("type", [snapshotEventSchema]);
+export type ServerEvent = z.infer<typeof serverEventSchema>;
 
 /** Serialize a server event to the string placed in an SSE `data:` field. */
 export function serializeEvent(event: ServerEvent): string {
@@ -25,20 +28,14 @@ export function serializeEvent(event: ServerEvent): string {
 }
 
 /**
- * Parse the raw `data` string from an SSE message back into a typed ServerEvent.
- * Throws if the payload isn't a recognized event shape, so a malformed frame
- * fails loudly rather than flowing on as `any`.
+ * Parse the raw `data` string from an SSE message into a fully-validated
+ * ServerEvent. This is the untrusted transport boundary, so the entire payload —
+ * including every nested WorldState domain — is checked against the schema, not
+ * just the discriminant. A malformed or truncated frame throws a ZodError here
+ * rather than flowing on and crashing the dashboard when it reads a missing field.
  */
 export function deserializeEvent(raw: string): ServerEvent {
-  const parsed: unknown = JSON.parse(raw);
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    (parsed as { type?: unknown }).type !== "snapshot"
-  ) {
-    throw new Error("Unrecognized SSE event payload");
-  }
-  return parsed as ServerEvent;
+  return serverEventSchema.parse(JSON.parse(raw));
 }
 
 /**

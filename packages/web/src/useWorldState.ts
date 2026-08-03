@@ -27,7 +27,8 @@ export function useWorldState(streamUrl = "/api/stream"): WorldStateFeed {
     source.onopen = () => setStatus("live");
 
     source.onmessage = (event) => {
-      const parsed = deserializeEvent(event.data);
+      // event.data is typed `any` by the DOM lib; deserializeEvent validates it.
+      const parsed = deserializeEvent(String(event.data));
       if (parsed.type === "snapshot") {
         setWorldState(parsed.worldState);
         setStatus("live");

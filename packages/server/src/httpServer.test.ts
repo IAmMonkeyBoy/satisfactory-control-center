@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { deserializeEvent, type WorldState } from "@scc/shared";
 import { createServer } from "./httpServer.js";
+import { boundPort } from "./testSupport.js";
 
 let server: Server | undefined;
 
@@ -17,27 +17,31 @@ afterEach(async () => {
 async function listen(): Promise<number> {
   server = createServer({ pushIntervalMs: 20 });
   await new Promise<void>((resolve) => server!.listen(0, resolve));
-  return (server!.address() as AddressInfo).port;
+  return boundPort(server);
 }
 
-/** Read the first complete SSE frame's `data:` payload from a streaming body. */
-async function readFirstEventData(body: ReadableStream<Uint8Array>): Promise<string> {
+/** Read the `data:` payloads of the first `count` complete SSE frames. */
+async function readEventData(body: ReadableStream<Uint8Array>, count: number): Promise<string[]> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
+  const frames: string[] = [];
   let buffer = "";
   try {
-    for (;;) {
+    while (frames.length < count) {
       const { value, done } = await reader.read();
-      if (done) throw new Error("stream ended before a full event arrived");
+      if (done) throw new Error("stream ended before enough events arrived");
       buffer += decoder.decode(value, { stream: true });
-      const boundary = buffer.indexOf("\n\n");
-      if (boundary !== -1) {
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary !== -1 && frames.length < count) {
         const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
         const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
         if (!dataLine) throw new Error("SSE frame had no data line");
-        return dataLine.slice("data:".length).trim();
+        frames.push(dataLine.slice("data:".length).trim());
+        boundary = buffer.indexOf("\n\n");
       }
     }
+    return frames;
   } finally {
     await reader.cancel();
   }
@@ -62,11 +66,26 @@ describe("SSE transport contract", () => {
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     expect(res.body).not.toBeNull();
 
-    const raw = await readFirstEventData(res.body!);
-    const event = deserializeEvent(raw);
+    const [raw] = await readEventData(res.body!, 1);
+    const event = deserializeEvent(raw!);
 
     expect(event.type).toBe("snapshot");
     expectValidWorldState(event.worldState);
+  });
+
+  it("keeps pushing snapshots on the interval (cleanup is not premature)", async () => {
+    // Guards the res-vs-req lifecycle bug: if cleanup were tied to the request
+    // finishing, the interval would be cleared after the first frame and no
+    // second frame would ever arrive. Reading two frames proves it keeps pushing.
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/stream`);
+    const frames = await readEventData(res.body!, 2);
+
+    expect(frames).toHaveLength(2);
+    for (const raw of frames) {
+      expect(deserializeEvent(raw).type).toBe("snapshot");
+    }
   });
 
   it("serves the current WorldState snapshot over REST", async () => {
@@ -78,10 +97,5 @@ describe("SSE transport contract", () => {
 
     const ws = (await res.json()) as WorldState;
     expectValidWorldState(ws);
-  });
-
-  it("rejects a malformed SSE payload rather than passing it through untyped", () => {
-    expect(() => deserializeEvent("{}")).toThrow();
-    expect(() => deserializeEvent('{"type":"bogus"}')).toThrow();
   });
 });

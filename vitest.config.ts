@@ -5,6 +5,6 @@ export default defineConfig({
     // Server contract tests need Node APIs (http, streams); web component tests
     // (added in later slices) opt into jsdom per-file.
     environment: "node",
-    include: ["packages/**/*.test.ts"],
+    include: ["packages/**/*.test.{ts,tsx}"],
   },
 });

@@ -2,15 +2,23 @@
  * The WorldState contract — the single canonical in-memory snapshot of the game,
  * merged from all ingestors and pushed to the dashboard.
  *
+ * Defined as Zod schemas with the TypeScript types derived via `z.infer`, so the
+ * runtime shape and the compile-time type can never drift apart. This matters
+ * because WorldState is the untrusted transport boundary: every payload the
+ * dashboard receives — and, in later slices, every payload parsed from a save or
+ * the FRM feed — is validated against these schemas before anything trusts it.
+ *
  * Build 1 (this slice) carries dummy data over the real transport. The domain
  * payloads below are intentionally minimal but shaped so later slices flesh them
  * out without changing the envelope: every domain is wrapped in {@link Domain},
  * which pins a per-domain {@link SourceAgeTag} so the UI can stay honest about
  * freshness (spec "Goals", CONTEXT.md "Source/age tag").
  */
+import { z } from "zod";
 
 /** Where a domain's data came from. */
-export type Source = "live" | "baseline";
+export const sourceSchema = z.enum(["live", "baseline"]);
+export type Source = z.infer<typeof sourceSchema>;
 
 /**
  * Per-domain provenance and staleness, carried on every domain of WorldState.
@@ -18,75 +26,86 @@ export type Source = "live" | "baseline";
  * the data; the UI derives displayed age from it against the current clock, so age
  * stays correct even if a snapshot sits in a buffer or the client reconnects.
  */
-export interface SourceAgeTag {
-  source: Source;
-  capturedAt: number;
-}
+export const sourceAgeTagSchema = z.object({
+  source: sourceSchema,
+  capturedAt: z.number(),
+});
+export type SourceAgeTag = z.infer<typeof sourceAgeTagSchema>;
 
-/** A domain payload paired with its source/age tag. */
+/**
+ * A domain payload paired with its source/age tag. The generic interface is used
+ * where the payload type varies (e.g. a UI component that renders any domain's
+ * freshness); concrete domains in {@link worldStateSchema} are built with
+ * {@link domainSchema} and validate structurally against this.
+ */
 export interface Domain<T> {
   tag: SourceAgeTag;
   data: T;
 }
 
-/** The session WorldState currently describes (the following indicator's data). */
-export interface FollowedSession {
-  sessionName: string;
-}
+/** Build a schema for a domain wrapping the given payload schema. */
+const domainSchema = <T extends z.ZodTypeAny>(data: T) =>
+  z.object({ tag: sourceAgeTagSchema, data });
 
 /** Power domain — per-circuit production/consumption/capacity and battery state. */
-export interface PowerState {
-  circuits: PowerCircuit[];
-}
+export const powerCircuitSchema = z.object({
+  id: z.string(),
+  productionMW: z.number(),
+  consumptionMW: z.number(),
+  capacityMW: z.number(),
+  batteryPercent: z.number().nullable(),
+  fuseTripped: z.boolean(),
+});
+export type PowerCircuit = z.infer<typeof powerCircuitSchema>;
 
-export interface PowerCircuit {
-  id: string;
-  productionMW: number;
-  consumptionMW: number;
-  capacityMW: number;
-  batteryPercent: number | null;
-  fuseTripped: boolean;
-}
+export const powerStateSchema = z.object({ circuits: z.array(powerCircuitSchema) });
+export type PowerState = z.infer<typeof powerStateSchema>;
 
 /** Production domain — per-item current vs. max rates. */
-export interface ProductionState {
-  items: ProductionItem[];
-}
+export const productionItemSchema = z.object({
+  className: z.string(),
+  displayName: z.string(),
+  currentPerMin: z.number(),
+  maxPerMin: z.number(),
+});
+export type ProductionItem = z.infer<typeof productionItemSchema>;
 
-export interface ProductionItem {
-  className: string;
-  displayName: string;
-  currentPerMin: number;
-  maxPerMin: number;
-}
+export const productionStateSchema = z.object({ items: z.array(productionItemSchema) });
+export type ProductionState = z.infer<typeof productionStateSchema>;
 
 /** Storage domain — item totals across containers. */
-export interface StorageState {
-  items: StorageItem[];
-}
+export const storageItemSchema = z.object({
+  className: z.string(),
+  displayName: z.string(),
+  count: z.number(),
+});
+export type StorageItem = z.infer<typeof storageItemSchema>;
 
-export interface StorageItem {
-  className: string;
-  displayName: string;
-  count: number;
-}
+export const storageStateSchema = z.object({ items: z.array(storageItemSchema) });
+export type StorageState = z.infer<typeof storageStateSchema>;
 
 /** Milestones domain — current HUB milestone summary. */
-export interface MilestonesState {
-  currentMilestone: string;
-  spaceElevatorPhase: string;
-}
+export const milestonesStateSchema = z.object({
+  currentMilestone: z.string(),
+  spaceElevatorPhase: z.string(),
+});
+export type MilestonesState = z.infer<typeof milestonesStateSchema>;
+
+/** The session WorldState currently describes (the following indicator's data). */
+export const followedSessionSchema = z.object({ sessionName: z.string() });
+export type FollowedSession = z.infer<typeof followedSessionSchema>;
 
 /**
  * The canonical merged snapshot. `generatedAt` stamps when the server assembled
  * this WorldState (distinct from each domain's `capturedAt`, which tracks the
  * underlying source).
  */
-export interface WorldState {
-  generatedAt: number;
-  followedSession: FollowedSession;
-  power: Domain<PowerState>;
-  production: Domain<ProductionState>;
-  storage: Domain<StorageState>;
-  milestones: Domain<MilestonesState>;
-}
+export const worldStateSchema = z.object({
+  generatedAt: z.number(),
+  followedSession: followedSessionSchema,
+  power: domainSchema(powerStateSchema),
+  production: domainSchema(productionStateSchema),
+  storage: domainSchema(storageStateSchema),
+  milestones: domainSchema(milestonesStateSchema),
+});
+export type WorldState = z.infer<typeof worldStateSchema>;
