@@ -9,7 +9,7 @@
  * slices can add delta pushes alongside the full snapshot without breaking clients.
  */
 import { z } from "zod";
-import { worldStateSchema } from "./worldState.js";
+import { worldStateSchema } from "./worldState.ts";
 
 /** Full-snapshot push — the whole current WorldState. */
 export const snapshotEventSchema = z.object({

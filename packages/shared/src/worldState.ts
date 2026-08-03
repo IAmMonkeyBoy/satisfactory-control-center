@@ -47,25 +47,40 @@ export interface Domain<T> {
 const domainSchema = <T extends z.ZodTypeAny>(data: T) =>
   z.object({ tag: sourceAgeTagSchema, data });
 
-/** Power domain — per-circuit production/consumption/capacity and battery state. */
+/**
+ * Power domain — per-circuit production/consumption/capacity and battery state.
+ *
+ * Fields the live feed alone can answer are nullable, because a save file simply
+ * does not record them: instantaneous production and draw, and the fuse flag, are
+ * runtime state the game never serializes. A baseline therefore leaves them null
+ * rather than reporting a fabricated zero, and the UI can say "unknown" honestly
+ * until FRM fills them in. `capacityMW` (installed generator capacity) and
+ * `batteryPercent` (stored MWh over capacity) are recoverable from a save, so they
+ * stay non-null wherever the domain has any data at all.
+ */
 export const powerCircuitSchema = z.object({
   id: z.string(),
-  productionMW: z.number(),
-  consumptionMW: z.number(),
+  productionMW: z.number().nullable(),
+  consumptionMW: z.number().nullable(),
   capacityMW: z.number(),
   batteryPercent: z.number().nullable(),
-  fuseTripped: z.boolean(),
+  fuseTripped: z.boolean().nullable(),
 });
 export type PowerCircuit = z.infer<typeof powerCircuitSchema>;
 
 export const powerStateSchema = z.object({ circuits: z.array(powerCircuitSchema) });
 export type PowerState = z.infer<typeof powerStateSchema>;
 
-/** Production domain — per-item current vs. max rates. */
+/**
+ * Production domain — per-item current vs. max rates. `currentPerMin` is null in a
+ * baseline for the same reason as the live-only power fields: a save records which
+ * recipe each machine is set to (hence a theoretical max) but not what it is
+ * actually producing right now.
+ */
 export const productionItemSchema = z.object({
   className: z.string(),
   displayName: z.string(),
-  currentPerMin: z.number(),
+  currentPerMin: z.number().nullable(),
   maxPerMin: z.number(),
 });
 export type ProductionItem = z.infer<typeof productionItemSchema>;
@@ -86,8 +101,8 @@ export type StorageState = z.infer<typeof storageStateSchema>;
 
 /** Milestones domain — current HUB milestone summary. */
 export const milestonesStateSchema = z.object({
-  currentMilestone: z.string(),
-  spaceElevatorPhase: z.string(),
+  currentMilestone: z.string().nullable(),
+  spaceElevatorPhase: z.string().nullable(),
 });
 export type MilestonesState = z.infer<typeof milestonesStateSchema>;
 
@@ -99,10 +114,14 @@ export type FollowedSession = z.infer<typeof followedSessionSchema>;
  * The canonical merged snapshot. `generatedAt` stamps when the server assembled
  * this WorldState (distinct from each domain's `capturedAt`, which tracks the
  * underlying source).
+ *
+ * `followedSession` is null before any ingestor has identified a session — the
+ * state the dashboard is in at startup, and the state it returns to if the watched
+ * directory holds no readable save.
  */
 export const worldStateSchema = z.object({
   generatedAt: z.number(),
-  followedSession: followedSessionSchema,
+  followedSession: followedSessionSchema.nullable(),
   power: domainSchema(powerStateSchema),
   production: domainSchema(productionStateSchema),
   storage: domainSchema(storageStateSchema),

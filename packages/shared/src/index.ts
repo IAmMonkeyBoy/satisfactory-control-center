@@ -1,2 +1,2 @@
-export * from "./worldState.js";
-export * from "./sse.js";
+export * from "./worldState.ts";
+export * from "./sse.ts";

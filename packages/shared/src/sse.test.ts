@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deserializeEvent, serializeEvent, type ServerEvent } from "./sse.js";
-import type { WorldState } from "./worldState.js";
+import { deserializeEvent, serializeEvent, type ServerEvent } from "./sse.ts";
+import type { WorldState } from "./worldState.ts";
 
 function validWorldState(): WorldState {
   const tag = { source: "live" as const, capturedAt: 1000 };
@@ -24,6 +24,52 @@ function validEvent(): ServerEvent {
 describe("deserializeEvent", () => {
   it("round-trips a valid snapshot event", () => {
     const event = validEvent();
+    expect(deserializeEvent(serializeEvent(event))).toEqual(event);
+  });
+
+  it("round-trips a baseline snapshot whose live-only fields are unknown", () => {
+    // A save records installed capacity and stored charge but never instantaneous
+    // production, draw, or fuse state; the baseline must be able to say so.
+    const ws = validWorldState();
+    const event: ServerEvent = {
+      type: "snapshot",
+      worldState: {
+        ...ws,
+        followedSession: null,
+        power: {
+          tag: { source: "baseline", capturedAt: 500 },
+          data: {
+            circuits: [
+              {
+                id: "1",
+                productionMW: null,
+                consumptionMW: null,
+                capacityMW: 750,
+                batteryPercent: 40,
+                fuseTripped: null,
+              },
+            ],
+          },
+        },
+        production: {
+          tag: { source: "baseline", capturedAt: 500 },
+          data: {
+            items: [
+              {
+                className: "Desc_IronPlate_C",
+                displayName: "Iron Plate",
+                currentPerMin: null,
+                maxPerMin: 60,
+              },
+            ],
+          },
+        },
+        milestones: {
+          tag: { source: "baseline", capturedAt: 500 },
+          data: { currentMilestone: null, spaceElevatorPhase: null },
+        },
+      },
+    };
     expect(deserializeEvent(serializeEvent(event))).toEqual(event);
   });
 

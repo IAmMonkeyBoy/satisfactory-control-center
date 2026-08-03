@@ -1,13 +1,12 @@
 import http from "node:http";
 import { encodeSseFrame, type WorldState } from "@scc/shared";
-import { makeDummyWorldState } from "./dummyWorldState.js";
-import { serveStatic } from "./staticFiles.js";
+import { serveStatic } from "./staticFiles.ts";
 
 export interface ServerOptions {
   /** Milliseconds between SSE snapshot pushes. */
   pushIntervalMs?: number;
-  /** WorldState source; defaults to the dummy generator for this slice. */
-  buildWorldState?: (now: number) => WorldState;
+  /** WorldState source — the store the ingestors write into. */
+  buildWorldState: (now: number) => WorldState;
   /** Built web app directory to serve non-API GETs from; omit in tests. */
   staticDir?: string;
 }
@@ -22,10 +21,9 @@ const DEFAULT_PUSH_INTERVAL_MS = 2000;
  * The returned server is not yet listening; the caller binds a port. Tests bind
  * port 0 for an ephemeral port.
  */
-export function createServer(options: ServerOptions = {}): http.Server {
+export function createServer(options: ServerOptions): http.Server {
   const pushIntervalMs = options.pushIntervalMs ?? DEFAULT_PUSH_INTERVAL_MS;
-  const buildWorldState = options.buildWorldState ?? makeDummyWorldState;
-  const staticDir = options.staticDir;
+  const { buildWorldState, staticDir } = options;
 
   return http.createServer((req, res) => {
     // Single-user LAN tool: allow the Vite dev origin to read the API directly.

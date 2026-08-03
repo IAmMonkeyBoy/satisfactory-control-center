@@ -6,6 +6,13 @@
     "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["src/**/*.test.ts", "src/testSupport.ts"],
+  // Test-only modules stay out of the production build: fixtures, byte builders,
+  // and the stand-in worker the parse-client tests spawn.
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/testSupport.ts",
+    "src/**/*TestSupport.ts",
+    "src/**/*TestWorker.ts"
+  ],
   "references": [{ "path": "../shared" }]
 }

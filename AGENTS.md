@@ -38,6 +38,8 @@ nvm use            # Node 24 per .nvmrc
 npm ci             # clean, lockfile-exact install (use `npm install` when changing deps)
 ```
 
+**Pick one shell and stay in it.** The checkout lives on `/mnt/c`, so PowerShell and WSL share one `node_modules` — but npm installs native optional dependencies (`@rolldown/binding-*`, `lightningcss-*`) only for the platform it runs on, and removes the others. Installing from the other shell therefore breaks `npm run build` with a missing-`.node` or NAPI binding error. The fix is always `npm install` from whichever shell you are building in; the lockfile is unaffected. CI is immune — it installs fresh on Linux.
+
 ### Verify (the definition of done)
 
 `npm run check` is the single gate — it must pass before a work item is considered complete and is exactly what CI runs (`.github/workflows/ci.yml`). It runs, in order:
@@ -69,8 +71,21 @@ npm run build --workspace @scc/web
 npm run start --workspace @scc/server
 ```
 
+### Pointing the server at the game
+
+The server reads two things from Aaron's own install, both read-only, and probes for them on Windows. Neither is ever vendored into the repo (see the spec's Licensing section). Override either when the defaults don't apply — running from WSL, or a non-default install location:
+
+```bash
+SCC_SAVE_DIR='/mnt/c/Users/Aaron/AppData/Local/FactoryGame/Saved/SaveGames/<id>'
+SCC_DOCS_FILE='/mnt/c/Program Files (x86)/Steam/steamapps/common/Satisfactory/CommunityResources/Docs/en-US.json'
+```
+
+With neither present the server still runs: the dashboard shows an empty WorldState and no followed session.
+
 ### Conventions and generated output
 
-- Each package has `tsconfig.json` (production build; excludes `*.test.ts`) and, for `shared`/`server`, `tsconfig.typecheck.json` (includes tests, `--noEmit`). Keep test-only helpers out of the production build (see `packages/server/src/testSupport.ts` and its `tsconfig.json` exclude).
+- **Relative imports name the `.ts` file they mean** (`import { x } from "./thing.ts"`), and `rewriteRelativeImportExtensions` emits `.js`. That way one source tree runs both untranspiled (`npm run dev` is plain `node src/index.ts`, and worker threads and Vitest load the same files) and compiled from `dist`. Package imports (`@scc/shared`) are unaffected.
+- Worker entry points are resolved with `moduleSibling(import.meta.url, name)` — a `new Worker(url)` needs the extension the *caller* is running as, which import rewriting cannot supply.
+- Each package has `tsconfig.json` (production build; excludes `*.test.ts`) and, for `shared`/`server`, `tsconfig.typecheck.json` (includes tests, `--noEmit`). Keep test-only helpers out of the production build — `*TestSupport.ts` and `*TestWorker.ts` are excluded by pattern (see `packages/server/tsconfig.json`).
 - **Generated, never committed** (gitignored): `packages/*/dist`, `node_modules`, `*.tsbuildinfo`. `tsc -b` does not delete orphaned outputs — after changing a tsconfig `include`/`exclude`, delete `dist` and rebuild.
 - Prettier owns code formatting; prose docs (`**/*.md`, `docs/`, `archive/`) are hand-authored and excluded (see `.prettierignore`).
