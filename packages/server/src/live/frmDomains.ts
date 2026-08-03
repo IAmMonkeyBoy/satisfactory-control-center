@@ -117,10 +117,18 @@ export function mapProduction(raw: unknown): ProductionState {
  * entry per physical machine, not per item, so this is the aggregation the
  * baseline extractor can't do (machine running state is runtime-only).
  *
- * A paused machine still reports `IsConfigured: true` with a `Productivity`
- * of 0, so counting it toward the efficiency average (rather than excluding
- * it as "no data") is what makes a machine switched off in-game visible in
- * the rollup, not just in its own status count.
+ * An unconfigured machine (`IsConfigured: false` — no recipe set, the same
+ * "not yet a producer" state `extractBaseline.ts`'s `extractMachines` skips
+ * entirely) is excluded here too, not just from the efficiency average: an
+ * unconfigured Constructor reports `IsProducing: false`, so counting it as
+ * an idle machine would make a freshly-placed, not-yet-configured building
+ * register as a stalled production line, and would make `totalCount` swing
+ * on nothing but which source answered — live vs. baseline.
+ *
+ * A paused (but configured) machine still reports a `Productivity` of 0, so
+ * counting it toward the efficiency average (rather than excluding it as "no
+ * data") is what makes a machine switched off in-game visible in the
+ * rollup's efficiency figure, not just in its own status count.
  */
 export function mapMachines(raw: unknown): MachinesState {
   interface Group {
@@ -138,6 +146,7 @@ export function mapMachines(raw: unknown): MachinesState {
     const record = asRecord(item);
     const className = stringField(record, "ClassName");
     if (!className) continue;
+    if (!(booleanField(record, "IsConfigured") ?? false)) continue;
 
     const group = groups.get(className) ?? {
       displayName: stringField(record, "Name") ?? className,
@@ -156,12 +165,10 @@ export function mapMachines(raw: unknown): MachinesState {
     else if (producing) group.producing += 1;
     else group.idle += 1;
 
-    if (booleanField(record, "IsConfigured") ?? false) {
-      const productivity = numberField(record, "Productivity");
-      if (productivity !== undefined) {
-        group.efficiencySum += productivity;
-        group.efficiencyCount += 1;
-      }
+    const productivity = numberField(record, "Productivity");
+    if (productivity !== undefined) {
+      group.efficiencySum += productivity;
+      group.efficiencyCount += 1;
     }
 
     groups.set(className, group);

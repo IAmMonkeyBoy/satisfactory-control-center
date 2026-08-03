@@ -157,7 +157,13 @@ describe("mapMachines", () => {
     expect(mapMachines(raw).machines[0]?.averageEfficiencyPercent).toBe(50);
   });
 
-  it("excludes an unconfigured machine's productivity from the average", () => {
+  it("excludes an unconfigured machine from the rollup entirely, not just its productivity", () => {
+    // Not just kept out of the efficiency average: an unconfigured machine
+    // reports IsProducing: false, so counting it as an idle machine would
+    // make a freshly-placed, not-yet-configured building register as a
+    // stalled production line (mapMachines.test would then raise a false
+    // "stalled" alarm) and would make totalCount disagree with the baseline
+    // extractor, which skips unconfigured machines the same way.
     const raw = [
       {
         ClassName: "Build_ConstructorMk1_C",
@@ -169,23 +175,28 @@ describe("mapMachines", () => {
     ];
 
     const [group] = mapMachines(raw).machines;
-    expect(group).toMatchObject({ totalCount: 2, idleCount: 1, averageEfficiencyPercent: 80 });
+    expect(group).toMatchObject({ totalCount: 1, producingCount: 1, idleCount: 0 });
   });
 
-  it("reports no efficiency figure when nothing configured has ever reported productivity", () => {
+  it("reports no machines at all for a class where nothing has ever been configured", () => {
     const raw = [{ ClassName: "Build_ConstructorMk1_C", IsConfigured: false }];
+    expect(mapMachines(raw).machines).toEqual([]);
+  });
+
+  it("reports no efficiency figure when a configured machine has never reported productivity", () => {
+    const raw = [{ ClassName: "Build_ConstructorMk1_C", IsConfigured: true, IsProducing: true }];
     expect(mapMachines(raw).machines[0]?.averageEfficiencyPercent).toBeNull();
   });
 
   it("drops a machine with no ClassName", () => {
-    expect(mapMachines([{ IsProducing: true }]).machines).toEqual([]);
+    expect(mapMachines([{ IsProducing: true, IsConfigured: true }]).machines).toEqual([]);
   });
 
   it("sorts by total count descending, className breaking ties", () => {
     const raw = [
-      { ClassName: "Build_SmelterMk1_C" },
-      { ClassName: "Build_ConstructorMk1_C" },
-      { ClassName: "Build_ConstructorMk1_C" },
+      { ClassName: "Build_SmelterMk1_C", IsConfigured: true },
+      { ClassName: "Build_ConstructorMk1_C", IsConfigured: true },
+      { ClassName: "Build_ConstructorMk1_C", IsConfigured: true },
     ];
     expect(mapMachines(raw).machines.map((m) => m.className)).toEqual([
       "Build_ConstructorMk1_C",

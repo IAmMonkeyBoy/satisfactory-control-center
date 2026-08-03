@@ -71,7 +71,7 @@ const FRM_PUSH: Record<FrmEndpoint, unknown> = {
 let sockets: FakeSocket[];
 let createSocket: () => FrmSocket;
 let fetchCalls: string[];
-let fetchImpl: (url: string) => Promise<FakeResponse>;
+let fetchImpl: (url: string, init?: RequestInit) => Promise<FakeResponse>;
 let onData: ReturnType<
   typeof vi.fn<(endpoint: FrmEndpoint, data: unknown, capturedAt: number) => void>
 >;
@@ -108,7 +108,7 @@ function start(overrides: Partial<Parameters<typeof startFrmClient>[0]> = {}): F
     host: "localhost",
     port: 8080,
     createSocket,
-    fetchImpl: ((url: string) => fetchImpl(url)) as typeof fetch,
+    fetchImpl: ((url: string, init?: RequestInit) => fetchImpl(url, init)) as typeof fetch,
     onData,
     onStatusChange,
     reconnectDelayMs: 1000,
@@ -270,12 +270,29 @@ describe("startFrmClient", () => {
     expect(fetchCalls).toHaveLength(5);
   });
 
-  it("abandons a hung request after the poll timeout, without blocking future ticks", async () => {
-    fetchImpl = () => new Promise(() => {}); // never resolves
+  it("aborts a hung request after the poll timeout, not just stops waiting on it, so a later tick can't pile a second request for the same endpoint on top of it", async () => {
+    const signals: AbortSignal[] = [];
+    fetchImpl = (_url: string, init?: RequestInit) =>
+      new Promise<FakeResponse>((_resolve, reject) => {
+        // A real `fetch` rejects once its signal aborts; a fake that just sat
+        // forever wouldn't exercise the abort path this test is checking.
+        const signal = init?.signal;
+        if (!signal) return;
+        signals.push(signal);
+        signal.addEventListener("abort", () => reject(new Error("aborted")));
+      });
     start({ pollTimeoutMs: 3000, pollIntervalMs: 10_000 });
+
+    await vi.advanceTimersByTimeAsync(0); // the first tick's requests are in flight
+    expect(signals.length).toBeGreaterThan(0);
+    expect(signals.every((signal) => !signal.aborted)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(3000); // the timeout fires for every endpoint
     expect(onStatusChange).toHaveBeenLastCalledWith("down");
+    // Every hung request was genuinely cancelled — the heavy endpoint this
+    // matters most for (getFactory) never gets a second request stacked on
+    // top of one FRM is still working through.
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
 
     fetchImpl = (url: string) => {
       const endpoint = url.split("/").pop() as FrmEndpoint;

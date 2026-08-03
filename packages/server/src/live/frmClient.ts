@@ -166,13 +166,24 @@ export function startFrmClient(options: FrmClientOptions): FrmClient {
     try {
       const results = await Promise.allSettled(
         endpoints.map(async (endpoint) => {
-          const response = await withTimeout(
-            fetchImpl(`http://${host}:${port}/${endpoint}`),
-            pollTimeoutMs,
-          );
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const data: unknown = await response.json();
-          return { endpoint, data };
+          // Aborted, not just raced against: a "heavy" endpoint (`getFactory`
+          // — see the doc comment on `FrmEndpoint`) that outlives the timeout
+          // must actually stop, or the next tick's request for the same
+          // endpoint piles a second expensive request on top of one FRM is
+          // still working through, compounding the very hitch the spec warns
+          // about rather than just tolerating a slow reply.
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), pollTimeoutMs);
+          try {
+            const response = await fetchImpl(`http://${host}:${port}/${endpoint}`, {
+              signal: controller.signal,
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data: unknown = await response.json();
+            return { endpoint, data };
+          } finally {
+            clearTimeout(timer);
+          }
         }),
       );
 
@@ -295,27 +306,4 @@ function parseEnvelope(raw: unknown): { endpoint: FrmEndpoint; data: unknown } |
 
 function isFrmEndpoint(value: string): value is FrmEndpoint {
   return (ALL_ENDPOINTS as readonly string[]).includes(value);
-}
-
-/**
- * Race a promise against a timeout, so one endpoint that never answers can't
- * hold a poll tick open indefinitely. This doesn't cancel the underlying
- * request — `fetchImpl` isn't guaranteed to honor an abort signal — it just
- * stops waiting on it; the abandoned request's eventual settlement (if any)
- * is ignored.
- */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (cause: unknown) => {
-        clearTimeout(timer);
-        reject(cause instanceof Error ? cause : new Error(errorMessage(cause)));
-      },
-    );
-  });
 }
