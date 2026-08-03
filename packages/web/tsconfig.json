@@ -10,7 +10,9 @@
     "declarationMap": false,
     "sourceMap": false,
     "noEmit": true,
-    "types": []
+    // vite/client declares the asset modules (`*.css`, ...) that TypeScript 6
+    // otherwise rejects as side-effect imports without type declarations.
+    "types": ["vite/client"]
   },
   "include": ["src", "vite.config.ts"]
 }

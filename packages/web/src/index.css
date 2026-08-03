@@ -1,6 +1,15 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Tailwind v4 is CSS-first: the old tailwind.config.js `content` array and
+   `theme.extend` both live here now. Sources are declared explicitly rather
+   than left to auto-detection so the scan stays scoped to this package. */
+@source "../index.html";
+@source "./**/*.{ts,tsx}";
+
+@theme {
+  /* FICSIT-informed accent (original palette, not extracted assets). */
+  --color-ficsit-orange: #f2a33c;
+}
 
 :root {
   color-scheme: dark;
