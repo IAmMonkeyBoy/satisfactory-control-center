@@ -1,0 +1,23 @@
+# Line endings are LF everywhere: in the repository *and* in the working tree.
+#
+# This project is developed from both Windows and WSL against the same physical
+# checkout under /mnt/c. `text=auto` alone only normalizes on commit, which
+# still lets Windows check files out as CRLF and produces whole-file diffs on
+# every platform switch. `eol=lf` pins the working tree too, so both sides see
+# identical bytes.
+* text=auto eol=lf
+
+# Shell scripts fail under bash with `\r` in the shebang or line endings.
+*.sh text eol=lf
+
+# Binary assets: never normalize, never diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
