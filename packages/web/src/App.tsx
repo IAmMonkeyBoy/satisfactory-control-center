@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import type { Domain, SourceAgeTag, WorldState } from "@scc/shared";
 import { useWorldState, type ConnectionStatus } from "./useWorldState";
-import { ageLabel, sourceLabel } from "./format";
+import { ageLabel, optionalValue, sourceLabel } from "./format";
 
 /**
  * Build 1 dashboard. This is a deliberately plain render of the dummy WorldState
@@ -61,16 +61,22 @@ function Dashboard({ worldState }: { worldState: WorldState }): JSX.Element {
         <Panel title="Power" domain={worldState.power} now={now}>
           {circuit ? (
             <ul className="space-y-1 text-sm">
-              <Stat label="Production" value={`${circuit.productionMW} MW`} />
-              <Stat label="Consumption" value={`${circuit.consumptionMW} MW`} />
+              <Stat
+                label="Production"
+                value={optionalValue(circuit.productionMW, (mw) => `${mw} MW`)}
+              />
+              <Stat
+                label="Consumption"
+                value={optionalValue(circuit.consumptionMW, (mw) => `${mw} MW`)}
+              />
               <Stat label="Capacity" value={`${circuit.capacityMW} MW`} />
               {circuit.batteryPercent !== null && (
                 <Stat label="Battery" value={`${circuit.batteryPercent}%`} />
               )}
               <Stat
                 label="Fuse"
-                value={circuit.fuseTripped ? "TRIPPED" : "OK"}
-                emphasis={circuit.fuseTripped}
+                value={circuit.fuseTripped === null ? "—" : circuit.fuseTripped ? "TRIPPED" : "OK"}
+                emphasis={circuit.fuseTripped === true}
               />
             </ul>
           ) : (
@@ -84,7 +90,7 @@ function Dashboard({ worldState }: { worldState: WorldState }): JSX.Element {
               <Stat
                 key={item.className}
                 label={item.displayName}
-                value={`${item.currentPerMin} / ${item.maxPerMin} /min`}
+                value={`${optionalValue(item.currentPerMin, String)} / ${item.maxPerMin} /min`}
               />
             ))}
           </ul>
@@ -104,8 +110,14 @@ function Dashboard({ worldState }: { worldState: WorldState }): JSX.Element {
 
         <Panel title="Milestones" domain={worldState.milestones} now={now}>
           <ul className="space-y-1 text-sm">
-            <Stat label="Current milestone" value={worldState.milestones.data.currentMilestone} />
-            <Stat label="Space Elevator" value={worldState.milestones.data.spaceElevatorPhase} />
+            <Stat
+              label="Current milestone"
+              value={worldState.milestones.data.currentMilestone ?? "—"}
+            />
+            <Stat
+              label="Space Elevator"
+              value={worldState.milestones.data.spaceElevatorPhase ?? "—"}
+            />
           </ul>
         </Panel>
       </div>
@@ -123,7 +135,9 @@ function FollowingIndicator({
   // Summarize freshness from the liveliest domain the UI leads with.
   return (
     <div className="rounded-md border border-neutral-800 bg-neutral-900/60 px-4 py-2 text-sm text-neutral-300">
-      <span className="font-medium text-neutral-100">{worldState.followedSession.sessionName}</span>
+      <span className="font-medium text-neutral-100">
+        {worldState.followedSession?.sessionName ?? "No session yet"}
+      </span>
       <span className="text-neutral-500"> · </span>
       <FreshnessTag tag={worldState.power.tag} now={now} />
     </div>

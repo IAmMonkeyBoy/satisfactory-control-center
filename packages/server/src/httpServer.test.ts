@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import { deserializeEvent, type WorldState } from "@scc/shared";
-import { createServer } from "./httpServer.js";
-import { boundPort } from "./testSupport.js";
+import { createServer } from "./httpServer.ts";
+import { boundPort, sampleWorldState } from "./testSupport.ts";
 
 let server: Server | undefined;
 
@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 async function listen(): Promise<number> {
-  server = createServer({ pushIntervalMs: 20 });
+  server = createServer({ pushIntervalMs: 20, buildWorldState: sampleWorldState });
   await new Promise<void>((resolve) => server!.listen(0, resolve));
   return boundPort(server);
 }
@@ -49,7 +49,7 @@ async function readEventData(body: ReadableStream<Uint8Array>, count: number): P
 
 function expectValidWorldState(ws: WorldState): void {
   expect(typeof ws.generatedAt).toBe("number");
-  expect(ws.followedSession.sessionName).toBeTruthy();
+  expect(ws.followedSession?.sessionName).toBeTruthy();
   // Every domain must carry a source/age tag — the freshness contract.
   for (const domain of [ws.power, ws.production, ws.storage, ws.milestones]) {
     expect(["live", "baseline"]).toContain(domain.tag.source);

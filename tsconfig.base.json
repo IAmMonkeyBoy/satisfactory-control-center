@@ -3,6 +3,12 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    // Relative imports name the `.ts` file they mean and tsc rewrites them to
+    // `.js` on the way out. Node resolves those specifiers directly, so the same
+    // source runs untranspiled (`node src/index.ts`, worker threads, Vitest) and
+    // compiled, with no separate dev toolchain.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "lib": ["ES2022"],
     "strict": true,
     "noUncheckedIndexedAccess": true,

@@ -1,0 +1,262 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { BaselineDomains } from "./extractBaseline.ts";
+import { readSaveHeader } from "./saveHeader.ts";
+import { startSaveWatcher, type SaveWatcher, type WatcherEvent } from "./saveWatcher.ts";
+import { buildSaveFile, buildSaveHeader } from "./saveTestSupport.ts";
+import { createWorldStateStore, type WorldStateStore } from "./worldStateStore.ts";
+
+let directory: string;
+let watcher: SaveWatcher | undefined;
+let store: WorldStateStore;
+let events: WatcherEvent[];
+let liveSessionName: string | null;
+
+beforeEach(async () => {
+  directory = await mkdtemp(path.join(tmpdir(), "scc-saves-"));
+  store = createWorldStateStore();
+  events = [];
+  liveSessionName = null;
+});
+
+afterEach(async () => {
+  await watcher?.close();
+  watcher = undefined;
+  await rm(directory, { recursive: true, force: true });
+});
+
+/**
+ * A stand-in parse that reports the item count each fixture save was built with.
+ * The real body is zlib-compressed, so the count travels in the header's save name
+ * where the stub can read it without a parser.
+ */
+function parseSave(bytes: ArrayBuffer): Promise<BaselineDomains> {
+  const count = Number(readSaveHeader(Buffer.from(bytes)).saveName.replace("count=", ""));
+  return Promise.resolve({
+    power: { circuits: [] },
+    production: { items: [] },
+    storage: {
+      items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count }],
+    },
+    milestones: { currentMilestone: null, spaceElevatorPhase: null },
+  });
+}
+
+async function writeSave(
+  name: string,
+  fields: { sessionName: string; saveDateTimeMs: number; count?: number },
+  options: { truncated?: boolean } = {},
+): Promise<void> {
+  const bytes = buildSaveFile(
+    { ...fields, saveName: `count=${fields.count ?? 0}` },
+    { truncateBody: options.truncated },
+  );
+  await writeFile(path.join(directory, name), bytes);
+}
+
+async function start(): Promise<void> {
+  watcher = await startSaveWatcher({
+    directory,
+    store,
+    parseSave,
+    debounceMs: 10,
+    // The real backoff waits seconds for the game to finish writing; tests only
+    // need to prove a rejected save is retried and then given up on.
+    snapshotRetry: { attempts: 2, retryDelayMs: 1 },
+    liveSessionName: () => liveSessionName,
+    onEvent: (event) => events.push(event),
+  });
+}
+
+function storedCount(): number | undefined {
+  return store.snapshot(Date.now()).storage.data.items[0]?.count;
+}
+
+describe("save watcher", () => {
+  it("shows the newest save's contents, tagged as a baseline of its own age", async () => {
+    await writeSave("Random Defaults_autosave_0.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 1234,
+    });
+
+    await start();
+
+    const worldState = store.snapshot(Date.now());
+    expect(worldState.followedSession?.sessionName).toBe("Random Defaults");
+    expect(worldState.storage.data.items).toEqual([
+      { className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 1234 },
+    ]);
+    // Age is the save's own time, not the moment the server got around to it.
+    expect(worldState.storage.tag).toEqual({
+      source: "baseline",
+      capturedAt: 1_700_000_000_000,
+    });
+  });
+
+  it("refreshes when a newer save appears in the watched directory", async () => {
+    await writeSave("older.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 1,
+    });
+    await start();
+    expect(storedCount()).toBe(1);
+
+    await writeSave("newer.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_060_000,
+      count: 2,
+    });
+    await watcher!.settled();
+
+    expect(storedCount()).toBe(2);
+  });
+
+  it("ignores a save older than the one already shown", async () => {
+    await writeSave("newer.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_060_000,
+      count: 2,
+    });
+    await start();
+
+    await writeSave("older.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 1,
+    });
+    await watcher!.settled();
+
+    expect(storedCount()).toBe(2);
+  });
+
+  it("keeps the previous WorldState when the newest save is only half-written", async () => {
+    await writeSave("good.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 7,
+    });
+    await start();
+
+    await writeSave(
+      "partial.sav",
+      { sessionName: "Random Defaults", saveDateTimeMs: 1_700_000_060_000, count: 999 },
+      { truncated: true },
+    );
+    await watcher!.settled();
+
+    expect(storedCount()).toBe(7);
+    expect(events.some((event) => event.type === "rejected")).toBe(true);
+  });
+
+  it("drops and rebuilds WorldState when the followed session changes", async () => {
+    await writeSave("first-world.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 500,
+    });
+    await start();
+
+    await writeSave("second-world.sav", {
+      sessionName: "Dune Desert",
+      saveDateTimeMs: 1_700_000_060_000,
+      count: 3,
+    });
+    await watcher!.settled();
+
+    const worldState = store.snapshot(Date.now());
+    expect(worldState.followedSession?.sessionName).toBe("Dune Desert");
+    // Rebuilt, not merged: nothing of the previous world survives.
+    expect(worldState.storage.data.items).toEqual([
+      { className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 3 },
+    ]);
+  });
+
+  it("holds a save from a session the live feed is not streaming", async () => {
+    await writeSave("followed.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 500,
+    });
+    liveSessionName = "Random Defaults";
+    await start();
+
+    await writeSave("other-world.sav", {
+      sessionName: "Dune Desert",
+      saveDateTimeMs: 1_700_000_060_000,
+      count: 3,
+    });
+    await watcher!.settled();
+
+    const worldState = store.snapshot(Date.now());
+    expect(worldState.followedSession?.sessionName).toBe("Random Defaults");
+    expect(storedCount()).toBe(500);
+    expect(events.some((event) => event.type === "held")).toBe(true);
+  });
+
+  it("ignores files that are not saves", async () => {
+    await writeFile(path.join(directory, "steam_autocloud.vdf"), "not a save");
+    await writeFile(path.join(directory, "notes.txt"), "also not a save");
+
+    await start();
+
+    expect(store.snapshot(Date.now()).followedSession).toBeNull();
+  });
+
+  it("starts with an empty WorldState when the directory holds no save", async () => {
+    await start();
+
+    const worldState = store.snapshot(Date.now());
+    expect(worldState.followedSession).toBeNull();
+    expect(worldState.storage.data.items).toEqual([]);
+    expect(worldState.power.data.circuits).toEqual([]);
+  });
+
+  it("survives a save whose header cannot be read at all", async () => {
+    await writeFile(path.join(directory, "garbage.sav"), Buffer.from([1, 2, 3]));
+    await writeSave("good.sav", {
+      sessionName: "Random Defaults",
+      saveDateTimeMs: 1_700_000_000_000,
+      count: 9,
+    });
+
+    await start();
+
+    expect(storedCount()).toBe(9);
+  });
+
+  it("parses once for a burst of writes to the same save", async () => {
+    await start();
+
+    for (let i = 0; i < 5; i++) {
+      await writeSave("Random Defaults_autosave_0.sav", {
+        sessionName: "Random Defaults",
+        saveDateTimeMs: 1_700_000_000_000,
+        count: 42,
+      });
+    }
+    await watcher!.settled();
+
+    expect(events.filter((event) => event.type === "baseline")).toHaveLength(1);
+    expect(storedCount()).toBe(42);
+  });
+
+  it("rejects a header-only file with no body", async () => {
+    await writeFile(
+      path.join(directory, "headeronly.sav"),
+      buildSaveHeader({
+        sessionName: "Random Defaults",
+        saveName: "count=0",
+        saveDateTimeMs: 1_700_000_000_000,
+      }),
+    );
+
+    await start();
+
+    expect(store.snapshot(Date.now()).followedSession).toBeNull();
+    expect(events.some((event) => event.type === "rejected")).toBe(true);
+  });
+});
