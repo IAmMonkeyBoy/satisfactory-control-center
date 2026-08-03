@@ -6,7 +6,7 @@ function validWorldState(): WorldState {
   const tag = { source: "live" as const, capturedAt: 1000 };
   return {
     generatedAt: 1000,
-    followedSession: { sessionName: "Test Session" },
+    followedSession: { sessionName: "Test Session", source: "live", capturedAt: 1000 },
     power: { tag, data: { circuits: [] } },
     production: { tag, data: { items: [] } },
     storage: { tag, data: { items: [] } },

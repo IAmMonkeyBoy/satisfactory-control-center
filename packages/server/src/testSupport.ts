@@ -15,7 +15,7 @@ export function sampleWorldState(now: number): WorldState {
 
   return {
     generatedAt: now,
-    followedSession: { sessionName: "Random Defaults" },
+    followedSession: { sessionName: "Random Defaults", source: "live", capturedAt: now },
     power: {
       tag: { source: "live", capturedAt: now },
       data: {
