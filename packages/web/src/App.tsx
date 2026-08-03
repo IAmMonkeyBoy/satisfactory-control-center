@@ -1,7 +1,8 @@
 import type { JSX } from "react";
-import type { Domain, SourceAgeTag, WorldState } from "@scc/shared";
+import type { Domain, PowerCircuit, SourceAgeTag, WorldState } from "@scc/shared";
 import { useWorldState, type ConnectionStatus } from "./useWorldState";
 import { ageLabel, optionalValue, sourceLabel } from "./format";
+import { formatMW, idleCircuitCount, notableCircuits } from "./powerCircuits";
 
 /**
  * Build 1 dashboard. This is a deliberately plain render of the dummy WorldState
@@ -51,7 +52,6 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }): JSX.Element 
 
 function Dashboard({ worldState }: { worldState: WorldState }): JSX.Element {
   const now = Date.now();
-  const circuit = worldState.power.data.circuits[0];
 
   return (
     <div className="space-y-6">
@@ -59,29 +59,7 @@ function Dashboard({ worldState }: { worldState: WorldState }): JSX.Element {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Panel title="Power" domain={worldState.power} now={now}>
-          {circuit ? (
-            <ul className="space-y-1 text-sm">
-              <Stat
-                label="Production"
-                value={optionalValue(circuit.productionMW, (mw) => `${mw} MW`)}
-              />
-              <Stat
-                label="Consumption"
-                value={optionalValue(circuit.consumptionMW, (mw) => `${mw} MW`)}
-              />
-              <Stat label="Capacity" value={`${circuit.capacityMW} MW`} />
-              {circuit.batteryPercent !== null && (
-                <Stat label="Battery" value={`${circuit.batteryPercent}%`} />
-              )}
-              <Stat
-                label="Fuse"
-                value={circuit.fuseTripped === null ? "—" : circuit.fuseTripped ? "TRIPPED" : "OK"}
-                emphasis={circuit.fuseTripped === true}
-              />
-            </ul>
-          ) : (
-            <p className="text-neutral-400 text-sm">No circuits.</p>
-          )}
+          <PowerCircuits circuits={worldState.power.data.circuits} />
         </Panel>
 
         <Panel title="Production" domain={worldState.production} now={now}>
@@ -121,6 +99,66 @@ function Dashboard({ worldState }: { worldState: WorldState }): JSX.Element {
           </ul>
         </Panel>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The circuits worth showing, biggest grid first. A save can only fill capacity
+ * and battery charge; production, draw and fuse state stay blank until the live
+ * feed arrives, and blank is the point — a zero there would read as "all clear".
+ */
+function PowerCircuits({ circuits }: { circuits: PowerCircuit[] }): JSX.Element {
+  const notable = notableCircuits(circuits);
+  const idle = idleCircuitCount(circuits);
+
+  if (notable.length === 0) {
+    return (
+      <p className="text-sm text-neutral-400">
+        {circuits.length === 0 ? "No circuits." : `${circuits.length} circuits, none powered.`}
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {notable.map((circuit) => (
+        <div key={circuit.id} className="border-l-2 border-neutral-800 pl-3">
+          <div className="mb-1 flex items-baseline justify-between">
+            <span className="text-xs uppercase tracking-wider text-neutral-500">
+              Circuit {circuit.id}
+            </span>
+            {circuit.batteryPercent !== null && (
+              <span className="text-xs text-neutral-400">Battery {circuit.batteryPercent}%</span>
+            )}
+          </div>
+          <ul className="space-y-1 text-sm">
+            <Stat label="Installed capacity" value={formatMW(circuit.capacityMW)} />
+            <Stat
+              label="Production"
+              value={optionalValue(circuit.productionMW, formatMW)}
+              muted={circuit.productionMW === null}
+            />
+            <Stat
+              label="Consumption"
+              value={optionalValue(circuit.consumptionMW, formatMW)}
+              muted={circuit.consumptionMW === null}
+            />
+            {circuit.fuseTripped !== null && (
+              <Stat
+                label="Fuse"
+                value={circuit.fuseTripped ? "TRIPPED" : "OK"}
+                emphasis={circuit.fuseTripped}
+              />
+            )}
+          </ul>
+        </div>
+      ))}
+      {idle > 0 && (
+        <p className="text-xs text-neutral-600">
+          {idle} further {idle === 1 ? "circuit" : "circuits"} with no generator or battery
+        </p>
+      )}
     </div>
   );
 }
@@ -181,15 +219,23 @@ function Stat({
   label,
   value,
   emphasis,
+  muted,
 }: {
   label: string;
   value: string;
   emphasis?: boolean;
+  /** Dim a value the current source cannot answer, so it reads as absent. */
+  muted?: boolean;
 }): JSX.Element {
+  const valueClass = emphasis
+    ? "font-semibold text-red-400"
+    : muted
+      ? "text-neutral-600"
+      : "text-neutral-100";
   return (
     <li className="flex items-baseline justify-between gap-4">
       <span className="text-neutral-400">{label}</span>
-      <span className={emphasis ? "font-semibold text-red-400" : "text-neutral-100"}>{value}</span>
+      <span className={valueClass}>{value}</span>
     </li>
   );
 }
