@@ -1,0 +1,7 @@
+{
+  // VS Code honors .editorconfig only with the EditorConfig extension installed,
+  // so pin the line ending natively as well. Applies to Windows and WSL windows.
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true
+}

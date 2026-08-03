@@ -1,0 +1,16 @@
+# Backs up .gitattributes by making editors write LF in the first place,
+# rather than relying on git to normalize it after the fact.
+root = true
+
+[*]
+end_of_line = lf
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Trailing whitespace is a hard line break in Markdown, and prose files here
+# are hand-authored (see .prettierignore).
+[*.md]
+trim_trailing_whitespace = false

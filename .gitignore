@@ -3,3 +3,6 @@ dist/
 *.tsbuildinfo
 .DS_Store
 *.local
+
+# Playwright MCP scratch output (page snapshots, traces).
+.playwright-mcp/
