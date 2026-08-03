@@ -41,10 +41,12 @@ export function MapDeck({
           <div className="flex-1" />
 
           <div className="flex w-72 flex-none flex-col gap-3 overflow-y-auto">
-            <PlaceholderPanel title="Milestone" note="Milestones summary arrives in Build 7." />
             <PlaceholderPanel
-              title="Storage"
-              note="Storage & inventory search arrives in Build 6."
+              title="Milestone + Storage"
+              note={[
+                { label: "Milestone", note: "Milestones summary arrives in Build 7." },
+                { label: "Storage", note: "Storage & inventory search arrives in Build 6." },
+              ]}
             />
           </div>
         </div>
