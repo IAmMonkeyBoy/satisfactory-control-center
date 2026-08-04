@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingColor, moverColor } from "./mapStyle.ts";
+import { buildingColor, moverColor } from "./mapStyle";
 
 describe("buildingColor", () => {
   it("gives each live status its own color", () => {

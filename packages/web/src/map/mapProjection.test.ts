@@ -9,7 +9,7 @@ import {
   worldToScenePoint,
   worldToSceneUnits,
   zoomView,
-} from "./mapProjection.ts";
+} from "./mapProjection";
 
 describe("worldToSceneUnits / worldToScenePoint", () => {
   it("converts centimetres to metres", () => {
