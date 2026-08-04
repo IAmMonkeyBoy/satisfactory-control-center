@@ -512,6 +512,7 @@ const BUILDING = {
 const PLAYER_MOVER = {
   id: "p1",
   kind: "player" as const,
+  className: "Char_Player_C",
   displayName: "derpierre65",
   transform: { x: 0, y: 0, z: 0, rotationDegrees: 0 },
   footprint: { widthCm: 100, depthCm: 100 },
@@ -520,6 +521,7 @@ const PLAYER_MOVER = {
 const VEHICLE_MOVER = {
   id: "v1",
   kind: "vehicle" as const,
+  className: "BP_Explorer_C",
   displayName: "Explorer",
   transform: { x: 0, y: 0, z: 0, rotationDegrees: 0 },
   footprint: { widthCm: 400, depthCm: 800 },

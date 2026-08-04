@@ -14,10 +14,7 @@ const DEFAULT_POLL_INTERVAL_MS = 2000;
  * had" choice `useWorldState` makes for a dropped SSE connection — the next
  * poll tick tries again on its own.
  */
-export function useMapSnapshot(
-  mapUrl = "/api/map",
-  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-): MapSnapshot | null {
+export function useMapSnapshot(mapUrl = "/api/map"): MapSnapshot | null {
   const [snapshot, setSnapshot] = useState<MapSnapshot | null>(null);
 
   useEffect(() => {
@@ -41,12 +38,12 @@ export function useMapSnapshot(
     };
 
     poll();
-    const timer = setInterval(poll, pollIntervalMs);
+    const timer = setInterval(poll, DEFAULT_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [mapUrl, pollIntervalMs]);
+  }, [mapUrl]);
 
   return snapshot;
 }

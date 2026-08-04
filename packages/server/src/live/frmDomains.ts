@@ -31,6 +31,7 @@ import type {
   MachinesState,
   MapBuilding,
   MapMover,
+  MoverKind,
   PowerCircuit,
   PowerState,
   ProductionState,
@@ -315,9 +316,9 @@ function locationField(record: Record<string, unknown> | undefined): FrmLocation
 
 /** `ID` arrives as a string on most endpoints but as a bare number on
  *  `getVehicles` (confirmed in FRM's own example response) — read either,
- *  falling back to a positional id so one malformed entry can't collide with
- *  another rather than being dropped (unlike building/mover *class*, which
- *  fine to drop the entry over, an id is only ever used as a React/diff key). */
+ *  falling back to a positional id rather than dropping the entry: unlike a
+ *  building/mover's *class*, which is fine to drop the entry over, an id is
+ *  only ever used as a React/diff key, so a synthetic one is harmless. */
 function idField(record: Record<string, unknown> | undefined, fallbackIndex: number): string {
   const value = record?.ID;
   if (typeof value === "string" && value !== "") return value;
@@ -391,105 +392,108 @@ export function mapFactoryBuildings(raw: unknown): MapBuilding[] {
   return buildings;
 }
 
-/** `getPlayer` -> the map's player movers. Offline players (logged out, but
- *  still in FRM's last response) are excluded — otherwise a marker would sit
- *  frozen wherever someone logged off, which is exactly the stale-ghost
- *  reading the live-only movers domain exists to avoid. */
-export function mapPlayers(raw: unknown): MapMover[] {
+/** What distinguishes one mover endpoint's mapping from another's — the
+ *  shape every `map<Kind>s` function below shares (spec, Tier 1 map: "every
+ *  map entity ships as `class + transform + footprint`" — `classNameOf`
+ *  exists so `getVehicles`' odd `VehicleType`-instead-of-`ClassName` shape
+ *  doesn't leave vehicles as the one mover kind without a class). */
+interface MoverMapping {
+  kind: MoverKind;
+  footprint: { widthCm: number; depthCm: number };
+  fallbackDisplayName: string;
+  fallbackClassName: string;
+  /** Extra per-entry filter (`getPlayer`'s online-only rule); entries not
+   *  passing it are excluded entirely, the same as a missing location. */
+  include?: (record: Record<string, unknown> | undefined) => boolean;
+  /** Overrides the default `stringField(record, "ClassName")` read —
+   *  `getVehicles` doesn't reliably report `ClassName` at all. */
+  classNameOf?: (record: Record<string, unknown> | undefined) => string | undefined;
+  /** Overrides the default `stringField(record, "Name")` read. */
+  displayNameOf?: (record: Record<string, unknown> | undefined) => string | undefined;
+}
+
+/** Maps one mover endpoint's raw entries into `MapMover`s per `mapping`. Ids
+ *  are namespaced by kind (`player-…`, `vehicle-…`) — the four endpoints are
+ *  merged into one `movers` list downstream (`worldStateStore.ts`), and
+ *  without the prefix two different kinds' ids (most likely `getVehicles`'
+ *  bare numeric ones, or two entries that both fell back to `idField`'s
+ *  positional default) can collide and silently overwrite one marker. */
+function mapMovers(raw: unknown, mapping: MoverMapping): MapMover[] {
   const movers = asArray(raw).flatMap((item, index): MapMover[] => {
     const record = asRecord(item);
-    if (!(booleanField(record, "Online") ?? false)) return [];
+    if (mapping.include && !mapping.include(record)) return [];
 
     const location = locationField(record);
     if (!location) return [];
 
     return [
       {
-        id: idField(record, index),
-        kind: "player",
-        displayName: stringField(record, "Name") ?? "Player",
+        id: `${mapping.kind}-${idField(record, index)}`,
+        kind: mapping.kind,
+        className:
+          (mapping.classNameOf ? mapping.classNameOf(record) : stringField(record, "ClassName")) ??
+          mapping.fallbackClassName,
+        displayName:
+          (mapping.displayNameOf ? mapping.displayNameOf(record) : stringField(record, "Name")) ??
+          mapping.fallbackDisplayName,
         transform: location,
-        footprint: DEFAULT_PLAYER_FOOTPRINT_CM,
+        footprint: mapping.footprint,
       },
     ];
   });
 
   movers.sort((a, b) => a.id.localeCompare(b.id));
   return movers;
+}
+
+/** `getPlayer` -> the map's player movers. Offline players (logged out, but
+ *  still in FRM's last response) are excluded — otherwise a marker would sit
+ *  frozen wherever someone logged off, which is exactly the stale-ghost
+ *  reading the live-only movers domain exists to avoid. */
+export function mapPlayers(raw: unknown): MapMover[] {
+  return mapMovers(raw, {
+    kind: "player",
+    footprint: DEFAULT_PLAYER_FOOTPRINT_CM,
+    fallbackClassName: "Char_Player_C",
+    fallbackDisplayName: "Player",
+    include: (record) => booleanField(record, "Online") ?? false,
+  });
 }
 
 /**
  * `getVehicles` -> the map's vehicle movers (explorers, tractors, trucks,
  * factory carts). FRM's documented example response omits `Name`/`ClassName`
  * in favor of a bare `VehicleType` field, unlike every other endpoint this
- * module reads — all three are tried, in that order, before falling back to
- * a generic label.
+ * module reads — both class and display name fall back through it before a
+ * generic label.
  */
 export function mapVehicles(raw: unknown): MapMover[] {
-  const movers = asArray(raw).flatMap((item, index): MapMover[] => {
-    const record = asRecord(item);
-    const location = locationField(record);
-    if (!location) return [];
-
-    return [
-      {
-        id: idField(record, index),
-        kind: "vehicle",
-        displayName:
-          stringField(record, "Name") ??
-          stringField(record, "VehicleType") ??
-          stringField(record, "ClassName") ??
-          "Vehicle",
-        transform: location,
-        footprint: DEFAULT_VEHICLE_FOOTPRINT_CM,
-      },
-    ];
+  return mapMovers(raw, {
+    kind: "vehicle",
+    footprint: DEFAULT_VEHICLE_FOOTPRINT_CM,
+    fallbackClassName: "Unknown",
+    fallbackDisplayName: "Vehicle",
+    classNameOf: (record) => stringField(record, "ClassName") ?? stringField(record, "VehicleType"),
+    displayNameOf: (record) => stringField(record, "Name") ?? stringField(record, "VehicleType"),
   });
-
-  movers.sort((a, b) => a.id.localeCompare(b.id));
-  return movers;
 }
 
 /** `getTrains` -> the map's train movers. */
 export function mapTrains(raw: unknown): MapMover[] {
-  const movers = asArray(raw).flatMap((item, index): MapMover[] => {
-    const record = asRecord(item);
-    const location = locationField(record);
-    if (!location) return [];
-
-    return [
-      {
-        id: idField(record, index),
-        kind: "train",
-        displayName: stringField(record, "Name") ?? "Train",
-        transform: location,
-        footprint: DEFAULT_TRAIN_FOOTPRINT_CM,
-      },
-    ];
+  return mapMovers(raw, {
+    kind: "train",
+    footprint: DEFAULT_TRAIN_FOOTPRINT_CM,
+    fallbackClassName: "Unknown",
+    fallbackDisplayName: "Train",
   });
-
-  movers.sort((a, b) => a.id.localeCompare(b.id));
-  return movers;
 }
 
 /** `getDrone` -> the map's drone movers. */
 export function mapDrones(raw: unknown): MapMover[] {
-  const movers = asArray(raw).flatMap((item, index): MapMover[] => {
-    const record = asRecord(item);
-    const location = locationField(record);
-    if (!location) return [];
-
-    return [
-      {
-        id: idField(record, index),
-        kind: "drone",
-        displayName: stringField(record, "Name") ?? "Drone",
-        transform: location,
-        footprint: DEFAULT_DRONE_FOOTPRINT_CM,
-      },
-    ];
+  return mapMovers(raw, {
+    kind: "drone",
+    footprint: DEFAULT_DRONE_FOOTPRINT_CM,
+    fallbackClassName: "Unknown",
+    fallbackDisplayName: "Drone",
   });
-
-  movers.sort((a, b) => a.id.localeCompare(b.id));
-  return movers;
 }

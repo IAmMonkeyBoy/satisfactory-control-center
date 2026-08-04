@@ -476,8 +476,9 @@ describe("mapPlayers", () => {
 
     expect(mapPlayers(raw)).toEqual([
       {
-        id: "Char_Player_C_2147452680",
+        id: "player-Char_Player_C_2147452680",
         kind: "player",
+        className: "Char_Player_C",
         displayName: "derpierre65",
         transform: { x: -57604.68, y: 260436.19, z: -3018.36, rotationDegrees: 115.55 },
         footprint: { widthCm: 100, depthCm: 100 },
@@ -508,8 +509,9 @@ describe("mapVehicles", () => {
 
     expect(mapVehicles(raw)).toEqual([
       {
-        id: "0",
+        id: "vehicle-0",
         kind: "vehicle",
+        className: "Explorer",
         displayName: "Explorer",
         transform: { x: -52341.44, y: -162543.22, z: -904.13, rotationDegrees: 313 },
         footprint: { widthCm: 400, depthCm: 800 },
@@ -520,6 +522,19 @@ describe("mapVehicles", () => {
   it("falls back to a generic label when neither Name, VehicleType, nor ClassName is present", () => {
     const raw = [{ ID: 1, location: { x: 0, y: 0, z: 0 } }];
     expect(mapVehicles(raw)[0]?.displayName).toBe("Vehicle");
+    expect(mapVehicles(raw)[0]?.className).toBe("Unknown");
+  });
+
+  it("prefers ClassName over VehicleType for the class when both are present", () => {
+    const raw = [
+      {
+        ID: 2,
+        ClassName: "BP_Explorer_C",
+        VehicleType: "Explorer",
+        location: { x: 0, y: 0, z: 0 },
+      },
+    ];
+    expect(mapVehicles(raw)[0]?.className).toBe("BP_Explorer_C");
   });
 
   it("drops an entry with no location", () => {
@@ -542,8 +557,9 @@ describe("mapTrains", () => {
 
     expect(mapTrains(raw)).toEqual([
       {
-        id: "BP_Train_C_2147339037",
+        id: "train-BP_Train_C_2147339037",
         kind: "train",
+        className: "BP_Train_C",
         displayName: "Train",
         transform: { x: -92400, y: 231600.21, z: 21100.01, rotationDegrees: 0 },
         footprint: { widthCm: 400, depthCm: 2000 },
@@ -570,8 +586,9 @@ describe("mapDrones", () => {
 
     expect(mapDrones(raw)).toEqual([
       {
-        id: "BP_DroneTransport_C_2147415346",
+        id: "drone-BP_DroneTransport_C_2147415346",
         kind: "drone",
+        className: "BP_DroneTransport_C",
         displayName: "Drone",
         transform: { x: -48777.96, y: 252677.7, z: -3190.92, rotationDegrees: 90 },
         footprint: { widthCm: 300, depthCm: 300 },

@@ -169,6 +169,7 @@ export function sampleMapSnapshot(now: number): MapSnapshot {
         {
           id: "Char_Player_C_1",
           kind: "player",
+          className: "Char_Player_C",
           displayName: "derpierre65",
           transform: { x: -57604.68, y: 260436.19, z: -3018.36, rotationDegrees: 115.55 },
           footprint: { widthCm: 100, depthCm: 100 },

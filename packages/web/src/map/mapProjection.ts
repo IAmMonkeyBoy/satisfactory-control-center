@@ -51,10 +51,10 @@ export function clampHalfExtent(halfExtent: number): number {
   return Math.min(MAX_HALF_EXTENT_M, Math.max(MIN_HALF_EXTENT_M, halfExtent));
 }
 
-/** Zoom by `factor` (>1 zooms out, <1 zooms in) around `aroundPoint` (a
- *  scene-space point the zoom should hold fixed under the cursor — pass
- *  `view.center` for a center-anchored zoom, e.g. from a UI button rather
- *  than a wheel event). */
+/** Zoom by `factor` (>1 zooms out, <1 zooms in) around `aroundPoint` — a
+ *  scene-space point the zoom holds fixed (`MapScene.tsx`'s wheel handler
+ *  passes the cursor's scene position; passing `view.center` instead gives a
+ *  center-anchored zoom for any future non-cursor-driven caller). */
 export function zoomView(view: MapView, factor: number, aroundPoint: ScenePoint): MapView {
   const nextHalfExtent = clampHalfExtent(view.halfExtent * factor);
   // How far `aroundPoint` sits from center, as a fraction of the view — that

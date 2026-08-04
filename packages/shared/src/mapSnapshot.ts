@@ -86,6 +86,7 @@ export type MoverKind = z.infer<typeof moverKindSchema>;
 export const mapMoverSchema = z.object({
   id: z.string(),
   kind: moverKindSchema,
+  className: z.string(),
   displayName: z.string(),
   transform: mapTransformSchema,
   footprint: mapFootprintSchema,

@@ -1,6 +1,13 @@
 import { useEffect, useRef, type JSX } from "react";
 import * as THREE from "three";
-import type { DeathCrate, MapBuilding, MapMover, MapSnapshot } from "@scc/shared";
+import type {
+  DeathCrate,
+  MapBuilding,
+  MapFootprint,
+  MapMover,
+  MapSnapshot,
+  MapTransform,
+} from "@scc/shared";
 import type { Alarm } from "../alarms/types";
 import { ALARM_BADGE_COLOR, DEATH_CRATE_COLOR, buildingColor, moverColor } from "./mapStyle";
 import {
@@ -148,26 +155,35 @@ function setFootprintScale(marker: THREE.Group, widthM: number, depthM: number):
   marker.scale.set(widthM, 1, depthM);
 }
 
-function placeBuilding(marker: THREE.Group, building: MapBuilding): void {
-  const scene = worldToScenePoint(building.transform);
-  marker.position.set(scene.x, LAYER_Y.buildings, scene.z);
-  marker.rotation.y = -THREE.MathUtils.degToRad(building.transform.rotationDegrees);
+/** Shared placement for the two layers that carry a real `MapTransform` +
+ *  `MapFootprint` — buildings and movers. Death crates and alarm badges have
+ *  neither (a crate/alarm is just a point, with no rotation or size FRM
+ *  reports), so they position themselves directly rather than going through
+ *  this. `minScaleM` keeps a marker from shrinking to invisibility when its
+ *  footprint is small relative to the map's scale. */
+function placeOriented(
+  marker: THREE.Group,
+  transform: MapTransform,
+  footprint: MapFootprint,
+  layerY: number,
+  minScaleM: number,
+): void {
+  const scene = worldToScenePoint(transform);
+  marker.position.set(scene.x, layerY, scene.z);
+  marker.rotation.y = -THREE.MathUtils.degToRad(transform.rotationDegrees);
   setFootprintScale(
     marker,
-    Math.max(0.5, building.footprint.widthCm / 100),
-    Math.max(0.5, building.footprint.depthCm / 100),
+    Math.max(minScaleM, footprint.widthCm / 100),
+    Math.max(minScaleM, footprint.depthCm / 100),
   );
 }
 
+function placeBuilding(marker: THREE.Group, building: MapBuilding): void {
+  placeOriented(marker, building.transform, building.footprint, LAYER_Y.buildings, 0.5);
+}
+
 function placeMover(marker: THREE.Group, mover: MapMover): void {
-  const scene = worldToScenePoint(mover.transform);
-  marker.position.set(scene.x, LAYER_Y.movers, scene.z);
-  marker.rotation.y = -THREE.MathUtils.degToRad(mover.transform.rotationDegrees);
-  setFootprintScale(
-    marker,
-    Math.max(1, mover.footprint.widthCm / 100),
-    Math.max(1, mover.footprint.depthCm / 100),
-  );
+  placeOriented(marker, mover.transform, mover.footprint, LAYER_Y.movers, 1);
 }
 
 function placeDeathCrate(marker: THREE.Group, crate: DeathCrate): void {

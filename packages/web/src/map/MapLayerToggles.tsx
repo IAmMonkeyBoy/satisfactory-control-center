@@ -10,9 +10,9 @@ const LABELS: Record<keyof MapLayerVisibility, string> = {
 
 /**
  * The Tier 1 map's four layer toggles (spec, "Tier 1 map": "individually
- * toggleable"), floating over the map's bottom-left corner. Deliberately
- * plain checkboxes rather than a custom control — this is a low-traffic
- * settings surface, not something that needs its own visual language.
+ * toggleable"). Deliberately plain checkboxes rather than a custom control —
+ * this is a low-traffic settings surface, not something that needs its own
+ * visual language. Positioning is the caller's concern (see `MapSlot.tsx`).
  */
 export function MapLayerToggles({
   layers,
