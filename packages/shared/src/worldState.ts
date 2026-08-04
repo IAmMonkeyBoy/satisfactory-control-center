@@ -43,8 +43,11 @@ export interface Domain<T> {
   data: T;
 }
 
-/** Build a schema for a domain wrapping the given payload schema. */
-const domainSchema = <T extends z.ZodTypeAny>(data: T) =>
+/** Build a schema for a domain wrapping the given payload schema. Exported so
+ *  other request/response payloads outside {@link worldStateSchema} itself
+ *  (e.g. the map snapshot, ADR 0003: REST, not SSE) can carry the same
+ *  source/age freshness contract without redeclaring its shape. */
+export const domainSchema = <T extends z.ZodTypeAny>(data: T) =>
   z.object({ tag: sourceAgeTagSchema, data });
 
 /**

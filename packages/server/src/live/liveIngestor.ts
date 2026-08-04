@@ -24,12 +24,17 @@ import {
 } from "./frmClient.ts";
 import {
   mapDepot,
+  mapDrones,
+  mapFactoryBuildings,
   mapMachines,
+  mapPlayers,
   mapPower,
   mapProduction,
   mapSessionName,
   mapSink,
   mapStorage,
+  mapTrains,
+  mapVehicles,
 } from "./frmDomains.ts";
 
 export type LiveEvent =
@@ -170,13 +175,21 @@ function domainUpdate(endpoint: FrmEndpoint, data: unknown): LiveDomainUpdate | 
     case "getProdStats":
       return { production: mapProduction(data) };
     case "getFactory":
-      return { machines: mapMachines(data) };
+      return { machines: mapMachines(data), mapBuildings: mapFactoryBuildings(data) };
     case "getStorageInv":
       return { storage: mapStorage(data) };
     case "getCloudInv":
       return { depot: mapDepot(data) };
     case "getResourceSink":
       return { sink: mapSink(data) };
+    case "getPlayer":
+      return { mapPlayers: mapPlayers(data) };
+    case "getVehicles":
+      return { mapVehicles: mapVehicles(data) };
+    case "getTrains":
+      return { mapTrains: mapTrains(data) };
+    case "getDrone":
+      return { mapDrones: mapDrones(data) };
     case "getSessionInfo":
       return undefined;
   }

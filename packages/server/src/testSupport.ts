@@ -1,5 +1,5 @@
 import type { Server } from "node:http";
-import type { StorageSearchResponse, WorldState } from "@scc/shared";
+import type { MapSnapshot, StorageSearchResponse, WorldState } from "@scc/shared";
 
 /**
  * A populated WorldState for the transport tests. They are about the SSE and REST
@@ -142,6 +142,39 @@ export function sampleStorageSearchResponse(query: string): StorageSearchRespons
         count: 500,
       },
     ],
+  };
+}
+
+/** A canned Tier 1 map snapshot for the `/api/map` REST contract test — the
+ *  route itself is exercised, not any real store logic. */
+export function sampleMapSnapshot(now: number): MapSnapshot {
+  return {
+    generatedAt: now,
+    buildings: {
+      tag: { source: "live", capturedAt: now },
+      data: [
+        {
+          id: "Build_ConstructorMk1_C_1",
+          className: "Build_ConstructorMk1_C",
+          displayName: "Constructor",
+          transform: { x: -70700, y: 254500, z: -3600, rotationDegrees: 90 },
+          footprint: { widthCm: 800, depthCm: 800 },
+          status: "running",
+        },
+      ],
+    },
+    movers: {
+      tag: { source: "live", capturedAt: now },
+      data: [
+        {
+          id: "Char_Player_C_1",
+          kind: "player",
+          displayName: "derpierre65",
+          transform: { x: -57604.68, y: 260436.19, z: -3018.36, rotationDegrees: 115.55 },
+          footprint: { widthCm: 100, depthCm: 100 },
+        },
+      ],
+    },
   };
 }
 

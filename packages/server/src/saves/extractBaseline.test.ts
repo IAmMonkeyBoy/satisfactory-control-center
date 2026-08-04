@@ -342,6 +342,63 @@ describe("machines baseline", () => {
   });
 });
 
+describe("map buildings baseline", () => {
+  it("places one entry per configured machine, with status always null", () => {
+    const baseline = baselineOf([
+      machine("Build_ConstructorMk1_C_1", "Recipe_IronPlate_C", {
+        location: { x: 100, y: 200, z: 5 },
+      }),
+    ]);
+
+    expect(baseline.mapBuildings).toEqual([
+      {
+        id: "Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_1",
+        className: "Build_ConstructorMk1_C",
+        displayName: "Constructor",
+        transform: { x: 100, y: 200, z: 5, rotationDegrees: 0 },
+        footprint: { widthCm: 800, depthCm: 800 },
+        status: null,
+      },
+    ]);
+  });
+
+  it("derives yaw from the save's rotation quaternion", () => {
+    const baseline = baselineOf([
+      machine("Build_ConstructorMk1_C_1", "Recipe_IronPlate_C", {
+        location: { x: 0, y: 0, z: 0 },
+        yawDegrees: 90,
+      }),
+    ]);
+
+    expect(baseline.mapBuildings[0]?.transform.rotationDegrees).toBeCloseTo(90);
+  });
+
+  it("normalizes a negative yaw into the 0-359 range", () => {
+    const baseline = baselineOf([
+      machine("Build_ConstructorMk1_C_1", "Recipe_IronPlate_C", {
+        location: { x: 0, y: 0, z: 0 },
+        yawDegrees: -90,
+      }),
+    ]);
+
+    expect(baseline.mapBuildings[0]?.transform.rotationDegrees).toBeCloseTo(270);
+  });
+
+  it("skips a machine with no recipe set, matching the machines domain's population", () => {
+    const baseline = baselineOf([
+      machine("Build_ConstructorMk1_C_1", null, { location: { x: 0, y: 0, z: 0 } }),
+    ]);
+
+    expect(baseline.mapBuildings).toEqual([]);
+  });
+
+  it("skips a configured machine with no resolvable location", () => {
+    const baseline = baselineOf([machine("Build_ConstructorMk1_C_1", "Recipe_IronPlate_C")]);
+
+    expect(baseline.mapBuildings).toEqual([]);
+  });
+});
+
 describe("milestones baseline", () => {
   const milestonePath = "/Game/FactoryGame/Schematics/Progression/Schematic_8-5.Schematic_8-5_C";
   const researchPath =

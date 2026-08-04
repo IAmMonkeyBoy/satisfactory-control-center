@@ -1,26 +1,43 @@
-import type { JSX } from "react";
+import { useState, type JSX } from "react";
+import type { WorldState } from "@scc/shared";
+import { useAlarmContext } from "../alarms/AlarmContext";
+import { MapLayerToggles } from "../map/MapLayerToggles";
+import { MapScene, type MapLayerVisibility } from "../map/MapScene";
+import { useMapSnapshot } from "../map/useMapSnapshot";
+
+const DEFAULT_LAYERS: MapLayerVisibility = {
+  buildings: true,
+  movers: true,
+  deathCrates: true,
+  alarms: true,
+};
 
 /**
- * The full-bleed map slot — empty in this build (spec, "Map Deck layout"). The
- * Tier 1 map replaces this in Build 8; keeping it as the backdrop now proves
- * the overlay panels lay out correctly against a full-bleed element before
- * there's anything real to render behind them.
+ * The full-bleed map slot (spec, "Map Deck layout") — the Tier 1 map itself
+ * (ADR 0004: orthographic Three.js scene). Owns the map's own data feed (its
+ * REST poll, per ADR 0003 — distinct from the SSE-pushed WorldState the rest
+ * of the dashboard reads) and layer-toggle state; the overlay panels around
+ * it know nothing about the map.
  */
-export function MapSlot(): JSX.Element {
+export function MapSlot({ worldState }: { worldState: WorldState | null }): JSX.Element {
+  const mapSnapshot = useMapSnapshot();
+  const { activeAlarms } = useAlarmContext();
+  const [layers, setLayers] = useState<MapLayerVisibility>(DEFAULT_LAYERS);
+
   return (
     <div className="absolute inset-0 bg-metal-950">
-      <div
-        className="absolute inset-0 opacity-30"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px)",
-          backgroundSize: "48px 48px",
-        }}
+      <MapScene
+        mapSnapshot={mapSnapshot}
+        deathCrates={worldState?.deathCrates.data.crates ?? []}
+        alarms={activeAlarms}
+        layers={layers}
       />
-      <div className="absolute inset-0 flex items-center justify-center">
-        <p className="text-sm uppercase tracking-[0.3em] text-neutral-700">
-          Map — Tier 1 arriving in Build 8
-        </p>
+      {/* The Map Deck's panel columns dock left/right and its ticker docks the
+          full-width bottom row (see MapDeck.tsx), so this is the one spot
+          guaranteed clear of every overlay panel regardless of their content
+          length — top-center, below the top bar. */}
+      <div className="absolute top-16 left-1/2 -translate-x-1/2">
+        <MapLayerToggles layers={layers} onChange={setLayers} />
       </div>
     </div>
   );

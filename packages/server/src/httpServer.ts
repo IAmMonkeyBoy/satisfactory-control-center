@@ -1,5 +1,10 @@
 import http from "node:http";
-import { encodeSseFrame, type StorageSearchResponse, type WorldState } from "@scc/shared";
+import {
+  encodeSseFrame,
+  type MapSnapshot,
+  type StorageSearchResponse,
+  type WorldState,
+} from "@scc/shared";
 import { serveStatic } from "./staticFiles.ts";
 
 export interface ServerOptions {
@@ -10,6 +15,11 @@ export interface ServerOptions {
   /** Item-location search — the request/response half of the storage domain
    *  (ADR 0003), backed by the same store as `buildWorldState`. */
   searchStorage: (query: string) => StorageSearchResponse;
+  /** The Tier 1 map's payload — buildings and movers, backed by the same
+   *  store as `buildWorldState`, served on demand via REST rather than
+   *  pushed with every WorldState snapshot (ADR 0003, spec "Transport and
+   *  API surface": "map payload snapshots"). */
+  buildMapSnapshot: (now: number) => MapSnapshot;
   /** Built web app directory to serve non-API GETs from; omit in tests. */
   staticDir?: string;
 }
@@ -17,10 +27,12 @@ export interface ServerOptions {
 const DEFAULT_PUSH_INTERVAL_MS = 2000;
 
 /**
- * Create the control-center HTTP server. Three routes carry the transport contract:
+ * Create the control-center HTTP server. Four routes carry the transport contract:
  *   GET /api/worldstate      — REST snapshot of the current WorldState (request/response)
  *   GET /api/stream          — SSE stream that pushes WorldState snapshots (push)
  *   GET /api/storage/search  — item-location search, `?item=` a name/class substring
+ *                              (request/response, per ADR 0003 — never pushed over SSE)
+ *   GET /api/map             — Tier 1 map snapshot: buildings + movers
  *                              (request/response, per ADR 0003 — never pushed over SSE)
  *
  * The returned server is not yet listening; the caller binds a port. Tests bind
@@ -28,7 +40,7 @@ const DEFAULT_PUSH_INTERVAL_MS = 2000;
  */
 export function createServer(options: ServerOptions): http.Server {
   const pushIntervalMs = options.pushIntervalMs ?? DEFAULT_PUSH_INTERVAL_MS;
-  const { buildWorldState, searchStorage, staticDir } = options;
+  const { buildWorldState, searchStorage, buildMapSnapshot, staticDir } = options;
 
   return http.createServer((req, res) => {
     // Single-user LAN tool: allow the Vite dev origin to read the API directly.
@@ -50,6 +62,13 @@ export function createServer(options: ServerOptions): http.Server {
 
     if (req.method === "GET" && url.pathname === "/api/storage/search") {
       const body = JSON.stringify(searchStorage(url.searchParams.get("item") ?? ""));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(body);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/map") {
+      const body = JSON.stringify(buildMapSnapshot(Date.now()));
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(body);
       return;

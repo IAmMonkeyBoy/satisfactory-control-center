@@ -169,11 +169,17 @@ export function centralStorage(items: ItemStack[]): SaveObjectView {
   };
 }
 
-/** A manufacturer set to a recipe, optionally overclocked. */
+/** A manufacturer set to a recipe, optionally overclocked and/or placed at a
+ *  world location — `yawDegrees` (rendered into the same rotation quaternion
+ *  shape the real parser emits) exercises the map builder's yaw extraction. */
 export function machine(
   instance: string,
   recipeClassName: string | null,
-  options: { potential?: number } = {},
+  options: {
+    potential?: number;
+    location?: { x: number; y: number; z: number };
+    yawDegrees?: number;
+  } = {},
 ): SaveObjectView {
   const className = instance.replace(/_\d+$/, "");
   const properties: Record<string, unknown> = {};
@@ -187,7 +193,21 @@ export function machine(
     typePath: `/Game/FactoryGame/Buildable/Factory/ConstructorMk1/${className.slice(0, -2)}.${className}`,
     instanceName: `${LEVEL}.${instance}`,
     properties,
+    transform: options.location
+      ? {
+          translation: options.location,
+          rotation:
+            options.yawDegrees !== undefined ? quaternionFromYaw(options.yawDegrees) : undefined,
+        }
+      : undefined,
   };
+}
+
+/** The inverse of `objectYawDegrees`'s quaternion-to-yaw formula, for test
+ *  fixtures: a pure yaw rotation about the vertical axis as a quaternion. */
+function quaternionFromYaw(yawDegrees: number): { x: number; y: number; z: number; w: number } {
+  const halfRadians = (yawDegrees * Math.PI) / 180 / 2;
+  return { x: 0, y: 0, z: Math.sin(halfRadians), w: Math.cos(halfRadians) };
 }
 
 /** One entry of `mPaidOffSchematic`: what has been submitted so far toward a

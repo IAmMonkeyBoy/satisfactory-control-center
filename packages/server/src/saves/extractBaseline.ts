@@ -16,6 +16,8 @@
 import type {
   DeathCratesState,
   MachinesState,
+  MapBuilding,
+  MapFootprint,
   MilestonesState,
   PowerState,
   ProductionState,
@@ -37,8 +39,14 @@ export interface SaveObjectView {
   properties: Record<string, unknown>;
   /** World placement, present on save *entities* (placed actors) but not on
    *  save *components* — undefined for those, and treated defensively as "no
-   *  location" rather than thrown on. */
-  transform?: { translation?: { x: number; y: number; z: number } };
+   *  location" rather than thrown on. `rotation` is the raw transform
+   *  quaternion the parser emits (translation and rotation are always parsed
+   *  together); {@link objectYawDegrees} reduces it to the map's top-down
+   *  yaw. */
+  transform?: {
+    translation?: { x: number; y: number; z: number };
+    rotation?: { x: number; y: number; z: number; w: number };
+  };
   /** Attached components. Used to find a crate's inventory, which — unlike a
    *  building's `mStorageInventory` — isn't a `SaveGame`-flagged property, so
    *  it doesn't show up in `properties` the way a container's does. */
@@ -66,6 +74,7 @@ export interface BaselineDomains {
   sink: SinkState;
   milestones: MilestonesState;
   containers: ContainerInventory[];
+  mapBuildings: MapBuilding[];
 }
 
 /** Rated capacity of a power storage bank when the dump doesn't say otherwise. */
@@ -93,6 +102,7 @@ export function emptyBaselineDomains(): BaselineDomains {
       playDurationSeconds: null,
     },
     containers: [],
+    mapBuildings: [],
   };
 }
 
@@ -111,6 +121,7 @@ export function extractBaseline(
     sink: extractSink(index),
     milestones: extractMilestones(index, staticData),
     containers: extractContainers(index, staticData),
+    mapBuildings: extractMapBuildings(index, staticData),
   };
 }
 
@@ -239,6 +250,52 @@ function extractMachines(index: SaveIndex, staticData: StaticData): MachinesStat
 
   machines.sort((a, b) => b.totalCount - a.totalCount || a.className.localeCompare(b.className));
   return { machines };
+}
+
+/** Default footprint for a baseline building — a save carries no bounding-box
+ *  data the way FRM's live `getFactory` does per building, so every baseline
+ *  building gets this stand-in until Tier 2 needs real per-class dimensions
+ *  (spec's Tier 1 map research notes a hand-built ~50-class table as a Tier 2
+ *  concern, not this build's). 8m square covers a typical mid-size machine's
+ *  footprint order of magnitude without claiming per-class precision. */
+const DEFAULT_BUILDING_FOOTPRINT_CM: MapFootprint = { widthCm: 800, depthCm: 800 };
+
+/**
+ * Buildings for the Tier 1 map (spec, "Tier 1 map": "factory buildings
+ * tinted by status"). Scoped to exactly the population {@link extractMachines}
+ * aggregates — a configured machine, i.e. one with a recipe set — reported
+ * per-instance with a world transform instead of rolled into a per-class
+ * count. Deliberately not "every buildable object" the save records:
+ * foundations, walls, belts and similar structural pieces have no meaningful
+ * single-point representation on a top-down icon map, and this keeps the
+ * baseline and live (FRM `getFactory`) populations spatially identical.
+ * `status` is always null here — a save cannot know whether a machine is
+ * actually running, starved, or unpowered (mirrors `extractMachines`'s
+ * live-only running-state fields); only the live feed resolves one of
+ * running/idle/no-power.
+ */
+function extractMapBuildings(index: SaveIndex, staticData: StaticData): MapBuilding[] {
+  const buildings: MapBuilding[] = [];
+
+  for (const object of index.all) {
+    if (!objectPath(object.properties.mCurrentRecipe)) continue;
+
+    const location = objectLocation(object);
+    if (!location) continue;
+
+    const className = classNameFromPath(object.typePath);
+    buildings.push({
+      id: object.instanceName,
+      className,
+      displayName: staticData.building(className)?.displayName ?? className,
+      transform: { ...location, rotationDegrees: objectYawDegrees(object) },
+      footprint: DEFAULT_BUILDING_FOOTPRINT_CM,
+      status: null,
+    });
+  }
+
+  buildings.sort((a, b) => a.id.localeCompare(b.id));
+  return buildings;
 }
 
 function extractStorage(index: SaveIndex, staticData: StaticData): StorageState {
@@ -689,6 +746,25 @@ function objectLocation(object: SaveObjectView): WorldLocation | undefined {
   const translation = object.transform?.translation;
   if (!translation || typeof translation.x !== "number") return undefined;
   return { x: translation.x, y: translation.y, z: translation.z };
+}
+
+/**
+ * Yaw (rotation about the vertical axis) in 0-359 degrees, derived from the
+ * save's rotation quaternion — the baseline's equivalent of FRM's live
+ * `location.rotation` field. Pitch/roll are discarded: placed buildings are
+ * overwhelmingly axis-aligned in the ground plane, and the Tier 1 map only
+ * ever rotates a flat top-down icon by this one angle. Missing rotation data
+ * (a component, or an entity the parser couldn't resolve one for) defaults
+ * to 0 rather than throwing.
+ */
+function objectYawDegrees(object: SaveObjectView): number {
+  const rotation = object.transform?.rotation;
+  if (!rotation || typeof rotation.w !== "number") return 0;
+
+  const { x, y, z, w } = rotation;
+  const radians = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+  const degrees = (radians * 180) / Math.PI;
+  return ((degrees % 360) + 360) % 360;
 }
 
 /**

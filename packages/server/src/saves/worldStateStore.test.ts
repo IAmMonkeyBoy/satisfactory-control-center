@@ -499,3 +499,142 @@ describe("searchStorage", () => {
     expect(result.matches).toEqual([]);
   });
 });
+
+const BUILDING = {
+  id: "b1",
+  className: "Build_ConstructorMk1_C",
+  displayName: "Constructor",
+  transform: { x: 0, y: 0, z: 0, rotationDegrees: 0 },
+  footprint: { widthCm: 800, depthCm: 800 },
+  status: null,
+};
+
+const PLAYER_MOVER = {
+  id: "p1",
+  kind: "player" as const,
+  displayName: "derpierre65",
+  transform: { x: 0, y: 0, z: 0, rotationDegrees: 0 },
+  footprint: { widthCm: 100, depthCm: 100 },
+};
+
+const VEHICLE_MOVER = {
+  id: "v1",
+  kind: "vehicle" as const,
+  displayName: "Explorer",
+  transform: { x: 0, y: 0, z: 0, rotationDegrees: 0 },
+  footprint: { widthCm: 400, depthCm: 800 },
+};
+
+describe("mapSnapshot", () => {
+  it("starts empty: no baseline buildings, no movers, both baseline-tagged at 0", () => {
+    const store = createWorldStateStore();
+    const map = store.mapSnapshot(5000);
+
+    expect(map.generatedAt).toBe(5000);
+    expect(map.buildings).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
+    expect(map.movers).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
+  });
+
+  it("reflects baseline buildings once a save is accepted", () => {
+    const store = createWorldStateStore();
+    store.applyBaseline(baseline({ mapBuildings: [BUILDING] }), header({ saveDateTime: 2_000 }));
+
+    const map = store.mapSnapshot(5000);
+    expect(map.buildings).toEqual({
+      tag: { source: "baseline", capturedAt: 2_000 },
+      data: [BUILDING],
+    });
+  });
+
+  it("prefers live buildings over the baseline once FRM's getFactory has supplied them", () => {
+    const store = createWorldStateStore();
+    store.applyBaseline(baseline({ mapBuildings: [BUILDING] }), header({ saveDateTime: 1_000 }));
+    store.applyLiveDomains(
+      { mapBuildings: [{ ...BUILDING, status: "running" as const }] },
+      { sessionName: "Random Defaults", capturedAt: 9_000 },
+    );
+
+    const map = store.mapSnapshot(9_500);
+    expect(map.buildings.tag).toEqual({ source: "live", capturedAt: 9_000 });
+    expect(map.buildings.data[0]?.status).toBe("running");
+  });
+
+  it("concatenates movers across the four independently-pushed kinds", () => {
+    const store = createWorldStateStore();
+    store.applyLiveDomains(
+      { mapPlayers: [PLAYER_MOVER] },
+      { sessionName: "Random Defaults", capturedAt: 9_000 },
+    );
+    store.applyLiveDomains(
+      { mapVehicles: [VEHICLE_MOVER] },
+      { sessionName: "Random Defaults", capturedAt: 9_200 },
+    );
+
+    const map = store.mapSnapshot(9_500);
+    expect(map.movers.data).toEqual(expect.arrayContaining([PLAYER_MOVER, VEHICLE_MOVER]));
+    expect(map.movers.data).toHaveLength(2);
+  });
+
+  it("a later push of one mover kind does not wipe out a different kind's movers", () => {
+    const store = createWorldStateStore();
+    store.applyLiveDomains(
+      { mapPlayers: [PLAYER_MOVER] },
+      { sessionName: "Random Defaults", capturedAt: 9_000 },
+    );
+    // A second getPlayer push (an empty roster, say everyone logged off)
+    // must not touch the vehicles pushed independently below.
+    store.applyLiveDomains(
+      { mapVehicles: [VEHICLE_MOVER] },
+      { sessionName: "Random Defaults", capturedAt: 9_200 },
+    );
+    store.applyLiveDomains(
+      { mapPlayers: [] },
+      { sessionName: "Random Defaults", capturedAt: 9_400 },
+    );
+
+    const map = store.mapSnapshot(9_500);
+    expect(map.movers.data).toEqual([VEHICLE_MOVER]);
+  });
+
+  it("tags movers live at the most recent of the four kinds' capturedAts", () => {
+    const store = createWorldStateStore();
+    store.applyLiveDomains(
+      { mapPlayers: [PLAYER_MOVER] },
+      { sessionName: "Random Defaults", capturedAt: 9_000 },
+    );
+    store.applyLiveDomains(
+      { mapVehicles: [VEHICLE_MOVER] },
+      { sessionName: "Random Defaults", capturedAt: 9_200 },
+    );
+
+    expect(store.mapSnapshot(9_500).movers.tag).toEqual({ source: "live", capturedAt: 9_200 });
+  });
+
+  it("keeps reporting the last-known movers, aged, after FRM drops — there is no baseline to fall back to", () => {
+    const store = createWorldStateStore();
+    store.applyLiveDomains(
+      { mapPlayers: [PLAYER_MOVER] },
+      { sessionName: "Random Defaults", capturedAt: 9_000 },
+    );
+    store.clearLive();
+
+    const map = store.mapSnapshot(20_000);
+    expect(map.movers.tag).toEqual({ source: "live", capturedAt: 9_000 });
+    expect(map.movers.data).toEqual([PLAYER_MOVER]);
+  });
+
+  it("reset drops both buildings and movers together", () => {
+    const store = createWorldStateStore();
+    store.applyBaseline(baseline({ mapBuildings: [BUILDING] }), header({ saveDateTime: 1_000 }));
+    store.applyLiveDomains(
+      { mapPlayers: [PLAYER_MOVER] },
+      { sessionName: "Random Defaults", capturedAt: 9_000 },
+    );
+
+    store.reset();
+
+    const map = store.mapSnapshot(9_500);
+    expect(map.buildings).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
+    expect(map.movers).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
+  });
+});

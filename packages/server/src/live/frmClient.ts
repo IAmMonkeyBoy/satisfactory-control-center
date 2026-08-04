@@ -17,18 +17,21 @@
 import { errorMessage } from "../errorMessage.ts";
 
 /** The FRM endpoints this build's WorldState domains can use, plus session
- *  identity. `getTrains` has no domain to land in yet (see `frmDomains.ts`)
- *  and is deliberately not subscribed; `getCrateInv` (death crates) is
- *  likewise not subscribed — death-crate contents stay baseline-only by
- *  design (spec, "Followed session and merge rules"), so there's nothing for
- *  a live push to feed.
+ *  identity. `getCrateInv` (death crates) is deliberately not subscribed —
+ *  death-crate contents stay baseline-only by design (spec, "Followed
+ *  session and merge rules"), so there's nothing for a live push to feed.
  *
  *  `getFactory` is one of the "heavy" endpoints the spec warns can hitch a
  *  large save (spec, "Ingestor 1: FRM client") — this module already
  *  addresses that the way the spec asks, by preferring the WebSocket push
  *  over polling and keeping the shared poll interval at FRM's own default
  *  cadence (~5 s) rather than tightening it; nothing here polls faster just
- *  because `getFactory` joined the subscription list. */
+ *  because `getFactory` joined the subscription list.
+ *
+ *  `getPlayer`, `getVehicles`, `getTrains` and `getDrone` feed the Tier 1
+ *  map's live movers (spec, build ticket 8) — each is a small, cheap list
+ *  (players/vehicles/trains/drones in a session, not every building), so
+ *  none of them carry the same hitch risk `getFactory` does. */
 export type FrmEndpoint =
   | "getSessionInfo"
   | "getPower"
@@ -36,7 +39,11 @@ export type FrmEndpoint =
   | "getFactory"
   | "getStorageInv"
   | "getCloudInv"
-  | "getResourceSink";
+  | "getResourceSink"
+  | "getPlayer"
+  | "getVehicles"
+  | "getTrains"
+  | "getDrone";
 
 const ALL_ENDPOINTS: readonly FrmEndpoint[] = [
   "getSessionInfo",
@@ -46,6 +53,10 @@ const ALL_ENDPOINTS: readonly FrmEndpoint[] = [
   "getStorageInv",
   "getCloudInv",
   "getResourceSink",
+  "getPlayer",
+  "getVehicles",
+  "getTrains",
+  "getDrone",
 ];
 
 /** Whether FRM is reachable at all right now, by either transport. */

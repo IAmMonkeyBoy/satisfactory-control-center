@@ -1,8 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
-import { deserializeEvent, type StorageSearchResponse, type WorldState } from "@scc/shared";
+import {
+  deserializeEvent,
+  type MapSnapshot,
+  type StorageSearchResponse,
+  type WorldState,
+} from "@scc/shared";
 import { createServer } from "./httpServer.ts";
-import { boundPort, sampleStorageSearchResponse, sampleWorldState } from "./testSupport.ts";
+import {
+  boundPort,
+  sampleMapSnapshot,
+  sampleStorageSearchResponse,
+  sampleWorldState,
+} from "./testSupport.ts";
 
 let server: Server | undefined;
 let lastSearchQuery: string | undefined;
@@ -24,6 +34,7 @@ async function listen(): Promise<number> {
       lastSearchQuery = query;
       return sampleStorageSearchResponse(query);
     },
+    buildMapSnapshot: sampleMapSnapshot,
   });
   await new Promise<void>((resolve) => server!.listen(0, resolve));
   return boundPort(server);
@@ -130,5 +141,24 @@ describe("item-location search", () => {
     const res = await fetch(`http://localhost:${port}/api/storage/search`);
     expect(res.status).toBe(200);
     expect(lastSearchQuery).toBe("");
+  });
+});
+
+describe("Tier 1 map", () => {
+  it("serves the current map snapshot over REST, buildings and movers each tagged", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/map`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+
+    const map = (await res.json()) as MapSnapshot;
+    expect(typeof map.generatedAt).toBe("number");
+    for (const domain of [map.buildings, map.movers]) {
+      expect(["live", "baseline"]).toContain(domain.tag.source);
+      expect(typeof domain.tag.capturedAt).toBe("number");
+    }
+    expect(map.buildings.data[0]?.className).toBe("Build_ConstructorMk1_C");
+    expect(map.movers.data[0]?.kind).toBe("player");
   });
 });
