@@ -4,7 +4,7 @@ import { AlarmBanner } from "../alarms/AlarmBanner";
 import { CodexNavSlot } from "../panels/CodexNavSlot";
 import { ConnectionBadge } from "../panels/ConnectionBadge";
 import { FollowingIndicator } from "../panels/FollowingIndicator";
-import { PlaceholderPanel } from "../panels/PlaceholderPanel";
+import { MilestonesPanel } from "../panels/MilestonesPanel";
 import { PowerPanel } from "../panels/PowerPanel";
 import { ProductionPanel } from "../panels/ProductionPanel";
 import { StoragePanel } from "../panels/StoragePanel";
@@ -43,7 +43,7 @@ export function MapDeck({
           <div className="flex-1" />
 
           <div className="flex w-72 flex-none flex-col gap-3 overflow-y-auto">
-            <PlaceholderPanel title="Milestone" note="Milestones summary arrives in Build 7." />
+            {worldState && <MilestonesPanel worldState={worldState} now={now} />}
             {worldState && <StoragePanel worldState={worldState} now={now} />}
           </div>
         </div>

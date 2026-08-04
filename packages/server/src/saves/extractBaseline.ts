@@ -85,7 +85,13 @@ export function emptyBaselineDomains(): BaselineDomains {
     depot: { items: [] },
     deathCrates: { crates: [] },
     sink: { totalPoints: 0, numCoupons: 0, pointsToNextCoupon: null, percentToNextCoupon: null },
-    milestones: { currentMilestone: null, spaceElevatorPhase: null },
+    milestones: {
+      currentMilestone: null,
+      spaceElevatorPhase: null,
+      activeResearch: [],
+      collectibles: { hardDriveResultsAwaitingClaim: 0, alternateRecipesUnlocked: 0 },
+      playDurationSeconds: null,
+    },
     containers: [],
   };
 }
@@ -381,19 +387,164 @@ function extractSink(index: SaveIndex): SinkState {
   return { totalPoints, numCoupons, pointsToNextCoupon: null, percentToNextCoupon: null };
 }
 
+/**
+ * Milestones domain: current HUB milestone (with per-ingredient progress),
+ * Space Elevator phase, in-flight MAM research, and the compact
+ * collectibles row. `playDurationSeconds` is a header field, not a game
+ * object, so it stays null here — `worldStateStore.ts` stamps it on from the
+ * save header once this baseline is committed.
+ */
 function extractMilestones(index: SaveIndex, staticData: StaticData): MilestonesState {
   const schematicManager = index.singleton("BP_SchematicManager_C");
-  const lastSchematic = objectPath(schematicManager?.properties.mLastActiveSchematic);
+  const purchased = purchasedSchematicPaths(schematicManager);
+
+  // `mActiveSchematic` is what resources are currently being sold towards
+  // (so it's the one that advances as ingredients are submitted in-game).
+  // `mLastActiveSchematic` is only a safe fallback for the gap between
+  // completing one milestone and selecting the next, when the active slot
+  // briefly empties — it is *not* transient once purchased, it just keeps
+  // pointing at whatever was last worked on, so a completed milestone can
+  // sit there indefinitely. Using it unconditionally would render that
+  // already-finished milestone as "current" at 0% (its `mPaidOffSchematic`
+  // entry is cleared on purchase), so it's only trusted here when it hasn't
+  // actually been purchased yet.
+  const lastActive = objectPath(schematicManager?.properties.mLastActiveSchematic);
+  const activeSchematic =
+    objectPath(schematicManager?.properties.mActiveSchematic) ??
+    (lastActive !== undefined && !purchased.has(lastActive) ? lastActive : undefined);
 
   const phaseManager = index.singleton("BP_GamePhaseManager_C");
   const currentPhase = objectPath(phaseManager?.properties.mCurrentGamePhase);
 
+  const researchManager = index.singleton("BP_ResearchManager_C");
+
   return {
-    currentMilestone: lastSchematic
-      ? (staticData.displayName(lastSchematic) ?? classNameFromPath(lastSchematic))
+    currentMilestone: activeSchematic
+      ? currentMilestoneFor(activeSchematic, schematicManager, staticData)
       : null,
     spaceElevatorPhase: currentPhase ? gamePhaseLabel(currentPhase) : null,
+    activeResearch: extractActiveResearch(researchManager, staticData),
+    collectibles: extractCollectibles(researchManager, purchased, staticData),
+    playDurationSeconds: null,
   };
+}
+
+/** The classes of every schematic the save records as purchased —
+ *  `mPurchasedSchematics` — shared by the active-milestone fallback (a
+ *  purchased schematic is never "current") and the collectibles row's
+ *  alternate-recipe count. */
+function purchasedSchematicPaths(schematicManager: SaveObjectView | undefined): Set<string> {
+  const purchased = new Set<string>();
+  if (!schematicManager) return purchased;
+
+  for (const entry of arrayValues(schematicManager, "mPurchasedSchematics")) {
+    const path = objectPath(entry);
+    if (path !== undefined) purchased.add(path);
+  }
+  return purchased;
+}
+
+/** The active milestone's ingredients, each paired with how much of its cost
+ *  has been paid off so far. The total cost comes from static data (a save
+ *  only ever records what's been paid); an ingredient the dump doesn't cover
+ *  is skipped rather than shown with a fabricated target. */
+function currentMilestoneFor(
+  schematicPath: string,
+  schematicManager: SaveObjectView | undefined,
+  staticData: StaticData,
+): MilestonesState["currentMilestone"] {
+  const className = classNameFromPath(schematicPath);
+  const cost = staticData.schematic(schematicPath)?.cost ?? [];
+  const paidOff = paidOffFor(schematicManager, schematicPath);
+
+  return {
+    className,
+    displayName: staticData.displayName(schematicPath) ?? className,
+    ingredients: cost.map((ingredient) => ({
+      className: ingredient.className,
+      displayName: staticData.displayName(ingredient.className) ?? ingredient.className,
+      amount: paidOff.get(ingredient.className) ?? 0,
+      targetAmount: ingredient.amount,
+    })),
+  };
+}
+
+/** How much of each item has been paid off toward one schematic, from the
+ *  schematic manager's `mPaidOffSchematic` record of partial HUB
+ *  submissions. */
+function paidOffFor(
+  schematicManager: SaveObjectView | undefined,
+  schematicPath: string,
+): Map<string, number> {
+  const paidOff = new Map<string, number>();
+  if (!schematicManager) return paidOff;
+
+  for (const entry of arrayValues(schematicManager, "mPaidOffSchematic")) {
+    if (objectPath(propertiesOf(entry)?.Schematic) !== schematicPath) continue;
+
+    for (const item of arrayValuesOf(propertiesOf(entry), "ItemCost")) {
+      const itemPath = objectPath(propertiesOf(item)?.ItemClass);
+      const amount = structNumber(item, "amount");
+      if (itemPath === undefined || amount === undefined) continue;
+      addCount(paidOff, classNameFromPath(itemPath), amount);
+    }
+  }
+  return paidOff;
+}
+
+/** In-flight MAM research, from the research manager's
+ *  `mSavedOngoingResearch` — populated only while a research timer is
+ *  actively counting down; empty once it completes and is claimed. */
+function extractActiveResearch(
+  researchManager: SaveObjectView | undefined,
+  staticData: StaticData,
+): MilestonesState["activeResearch"] {
+  if (!researchManager) return [];
+
+  const research: MilestonesState["activeResearch"] = [];
+  for (const entry of arrayValues(researchManager, "mSavedOngoingResearch")) {
+    const researchData = nestedStructProperties(entry, "ResearchData");
+    const schematicPath = objectPath(researchData?.Schematic);
+    if (!schematicPath) continue;
+
+    const className = classNameFromPath(schematicPath);
+    const remaining = structNumber(entry, "ResearchCompleteTimestamp");
+    research.push({
+      className,
+      displayName: staticData.displayName(schematicPath) ?? className,
+      // Saved as time remaining, not an absolute timestamp; clamp defensively
+      // in case a claimed-but-not-yet-removed entry saved with time to spare.
+      // A missing field (a save version that doesn't record it) stays
+      // honestly null rather than reading as "0s left".
+      secondsRemaining: remaining === undefined ? null : Math.max(0, remaining),
+    });
+  }
+  return research;
+}
+
+/** The compact collectibles row: hard drive analyses that have finished
+ *  generating reward candidates but haven't been claimed yet (`mUnclaimedHardDriveData` —
+ *  Coffee Stain's own header calls this "the stored hard drives that we have
+ *  researched"; despite the name it is a post-research queue, not drives
+ *  waiting to be researched), and alternate recipes already unlocked.
+ *  Neither needs per-map collectible-spawn knowledge, which v1 doesn't have
+ *  (spec, "Reserved for v2").
+ */
+function extractCollectibles(
+  researchManager: SaveObjectView | undefined,
+  purchased: Set<string>,
+  staticData: StaticData,
+): MilestonesState["collectibles"] {
+  const hardDriveResultsAwaitingClaim = researchManager
+    ? arrayValues(researchManager, "mUnclaimedHardDriveData").length
+    : 0;
+
+  let alternateRecipesUnlocked = 0;
+  for (const path of purchased) {
+    if (staticData.schematic(path)?.type === "EST_Alternate") alternateRecipesUnlocked += 1;
+  }
+
+  return { hardDriveResultsAwaitingClaim, alternateRecipesUnlocked };
 }
 
 /**
@@ -481,9 +632,16 @@ function objectPath(property: unknown): string | undefined {
   return typeof pathName === "string" && pathName !== "" ? pathName : undefined;
 }
 
-function arrayValues(object: SaveObjectView, name: string): unknown[] {
-  const values = asRecord(object.properties[name])?.values;
+/** An `ArrayProperty` field's raw elements, given the properties bag it lives
+ *  in — shared by {@link arrayValues} (a save object's top-level properties)
+ *  and callers reading an array-typed field nested inside a struct. */
+function arrayValuesOf(properties: Record<string, unknown> | undefined, name: string): unknown[] {
+  const values = asRecord(properties?.[name])?.values;
   return Array.isArray(values) ? values : [];
+}
+
+function arrayValues(object: SaveObjectView, name: string): unknown[] {
+  return arrayValuesOf(object.properties, name);
 }
 
 function propertiesOf(struct: unknown): Record<string, unknown> | undefined {
@@ -501,6 +659,18 @@ function structField(
 function structNumber(struct: unknown, name: string): number | undefined {
   const value = asRecord(propertiesOf(struct)?.[name])?.value;
   return typeof value === "number" ? value : undefined;
+}
+
+/** A struct-typed *field*'s own nested properties bag. Unlike an array
+ *  element (already a bare `{ type, properties }` struct, see
+ *  {@link propertiesOf}), a struct-typed field is wrapped one layer deeper —
+ *  `{ type: "StructProperty", value: { properties } }` — because it carries
+ *  a property tag of its own the way an array element doesn't. */
+function nestedStructProperties(
+  struct: unknown,
+  name: string,
+): Record<string, unknown> | undefined {
+  return propertiesOf(asRecord(propertiesOf(struct)?.[name])?.value);
 }
 
 /** An EnumProperty's raw value (`"CT_DeathCrate"`, possibly qualified as

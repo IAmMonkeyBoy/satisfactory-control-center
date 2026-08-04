@@ -9,6 +9,7 @@ import {
   inventory,
   machine,
   powerStorage,
+  researchManager,
   resourceSink,
   schematicManager,
   storageContainer,
@@ -342,24 +343,120 @@ describe("machines baseline", () => {
 });
 
 describe("milestones baseline", () => {
-  it("names the current milestone and Space Elevator phase", () => {
+  const milestonePath = "/Game/FactoryGame/Schematics/Progression/Schematic_8-5.Schematic_8-5_C";
+  const researchPath =
+    "/Game/FactoryGame/Schematics/Research/Sulfur/Research_Sulfur_1.Research_Sulfur_1_C";
+  const alternatePath =
+    "/Game/FactoryGame/Schematics/Alternate/Schematic_Alternate_PureIronIngot.Schematic_Alternate_PureIronIngot_C";
+
+  it("names the current milestone, its ingredients unpaid, and the Space Elevator phase", () => {
     const baseline = baselineOf([
-      schematicManager("/Game/FactoryGame/Schematics/Progression/Schematic_8-5.Schematic_8-5_C"),
+      schematicManager({ activeSchematic: milestonePath }),
       gamePhaseManager(
         "/Game/FactoryGame/GamePhases/GP_Project_Assembly_Phase_3.GP_Project_Assembly_Phase_3",
       ),
     ]);
 
     expect(baseline.milestones).toEqual({
-      currentMilestone: "Particle Enrichment",
+      currentMilestone: {
+        className: "Schematic_8-5_C",
+        displayName: "Particle Enrichment",
+        ingredients: [
+          {
+            className: "Desc_IronPlate_C",
+            displayName: "Iron Plate",
+            amount: 0,
+            targetAmount: 50,
+          },
+        ],
+      },
       spaceElevatorPhase: "Phase 3",
+      activeResearch: [],
+      collectibles: { hardDriveResultsAwaitingClaim: 0, alternateRecipesUnlocked: 0 },
+      playDurationSeconds: null,
     });
+  });
+
+  it("reports how much of the active milestone has been paid off", () => {
+    const baseline = baselineOf([
+      schematicManager({
+        activeSchematic: milestonePath,
+        paidOff: [
+          { schematic: milestonePath, items: [{ className: "Desc_IronPlate_C", count: 20 }] },
+        ],
+      }),
+    ]);
+
+    expect(baseline.milestones.currentMilestone?.ingredients).toEqual([
+      { className: "Desc_IronPlate_C", displayName: "Iron Plate", amount: 20, targetAmount: 50 },
+    ]);
+  });
+
+  it("falls back to the last active schematic when nothing is currently active", () => {
+    const baseline = baselineOf([schematicManager({ lastActiveSchematic: milestonePath })]);
+
+    expect(baseline.milestones.currentMilestone?.className).toBe("Schematic_8-5_C");
+  });
+
+  it("does not resurrect an already-purchased milestone as current", () => {
+    // A real save can have mActiveSchematic absent (between selections) while
+    // mLastActiveSchematic still points at whatever was last worked on —
+    // including a milestone that has since been completed and purchased.
+    // mPaidOffSchematic is cleared on purchase, so trusting the fallback
+    // unconditionally would render a finished milestone as "current" at 0%.
+    const baseline = baselineOf([
+      schematicManager({ lastActiveSchematic: milestonePath, purchased: [milestonePath] }),
+    ]);
+
+    expect(baseline.milestones.currentMilestone).toBeNull();
+  });
+
+  it("prefers the active schematic over the last active one when both are present", () => {
+    const otherPath = "/Game/FactoryGame/Schematics/Progression/Schematic_2-1.Schematic_2-1_C";
+    const baseline = baselineOf([
+      schematicManager({ activeSchematic: milestonePath, lastActiveSchematic: otherPath }),
+    ]);
+
+    expect(baseline.milestones.currentMilestone?.className).toBe("Schematic_8-5_C");
+  });
+
+  it("reports in-flight MAM research with time remaining", () => {
+    const baseline = baselineOf([
+      researchManager({ ongoing: [{ schematic: researchPath, secondsRemaining: 120 }] }),
+    ]);
+
+    expect(baseline.milestones.activeResearch).toEqual([
+      { className: "Research_Sulfur_1_C", displayName: "Sulfur Research", secondsRemaining: 120 },
+    ]);
+  });
+
+  it("reports unknown rather than zero when a save doesn't record research time remaining", () => {
+    const baseline = baselineOf([researchManager({ ongoing: [{ schematic: researchPath }] })]);
+
+    expect(baseline.milestones.activeResearch).toEqual([
+      { className: "Research_Sulfur_1_C", displayName: "Sulfur Research", secondsRemaining: null },
+    ]);
+  });
+
+  it("counts hard drive results waiting to be claimed", () => {
+    const baseline = baselineOf([researchManager({ unclaimedHardDriveCount: 3 })]);
+
+    expect(baseline.milestones.collectibles.hardDriveResultsAwaitingClaim).toBe(3);
+  });
+
+  it("counts alternate recipes among the purchased schematics", () => {
+    const baseline = baselineOf([schematicManager({ purchased: [milestonePath, alternatePath] })]);
+
+    expect(baseline.milestones.collectibles.alternateRecipesUnlocked).toBe(1);
   });
 
   it("reports unknown rather than guessing when the save has no progression yet", () => {
     expect(baselineOf([]).milestones).toEqual({
       currentMilestone: null,
       spaceElevatorPhase: null,
+      activeResearch: [],
+      collectibles: { hardDriveResultsAwaitingClaim: 0, alternateRecipesUnlocked: 0 },
+      playDurationSeconds: null,
     });
   });
 });

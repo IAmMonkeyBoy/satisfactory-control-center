@@ -83,6 +83,35 @@ describe("building power", () => {
   });
 });
 
+describe("schematics", () => {
+  it("reads a schematic's type and cost", () => {
+    const schematic = staticData.schematic("Schematic_8-5_C");
+
+    expect(schematic?.displayName).toBe("Particle Enrichment");
+    expect(schematic?.type).toBe("EST_Milestone");
+    expect(schematic?.cost).toEqual([{ className: "Desc_IronPlate_C", amount: 50, perMinute: 0 }]);
+  });
+
+  it("accepts a save's full class path as well as a bare class name", () => {
+    expect(
+      staticData.schematic("/Game/FactoryGame/Schematics/Progression/Schematic_8-5.Schematic_8-5_C")
+        ?.type,
+    ).toBe("EST_Milestone");
+  });
+
+  it("returns an empty cost for a schematic the dump doesn't cost (e.g. MAM research)", () => {
+    expect(staticData.schematic("Research_Sulfur_1_C")?.cost).toEqual([]);
+  });
+
+  it("returns null for an unknown schematic", () => {
+    expect(staticData.schematic("Schematic_Imaginary_C")).toBeNull();
+  });
+
+  it("returns null for a non-schematic class", () => {
+    expect(staticData.schematic("Desc_IronPlate_C")).toBeNull();
+  });
+});
+
 describe("loadStaticData", () => {
   it("reads the game's UTF-16 LE Docs file from disk", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "scc-docs-"));

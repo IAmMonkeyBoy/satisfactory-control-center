@@ -19,7 +19,30 @@ function validWorldState(): WorldState {
     },
     milestones: {
       tag,
-      data: { currentMilestone: "HUB Upgrade 1", spaceElevatorPhase: "Phase 1" },
+      data: {
+        currentMilestone: {
+          className: "Schematic_2-1_C",
+          displayName: "HUB Upgrade 1",
+          ingredients: [
+            {
+              className: "Desc_IronPlate_C",
+              displayName: "Iron Plate",
+              amount: 20,
+              targetAmount: 50,
+            },
+          ],
+        },
+        spaceElevatorPhase: "Phase 1",
+        activeResearch: [
+          {
+            className: "Research_Sulfur_1_C",
+            displayName: "Sulfur Research",
+            secondsRemaining: 120,
+          },
+        ],
+        collectibles: { hardDriveResultsAwaitingClaim: 2, alternateRecipesUnlocked: 5 },
+        playDurationSeconds: 3600,
+      },
     },
   };
 }
@@ -73,7 +96,13 @@ describe("deserializeEvent", () => {
         },
         milestones: {
           tag: { source: "baseline", capturedAt: 500 },
-          data: { currentMilestone: null, spaceElevatorPhase: null },
+          data: {
+            currentMilestone: null,
+            spaceElevatorPhase: null,
+            activeResearch: [],
+            collectibles: { hardDriveResultsAwaitingClaim: 0, alternateRecipesUnlocked: 0 },
+            playDurationSeconds: null,
+          },
         },
       },
     };

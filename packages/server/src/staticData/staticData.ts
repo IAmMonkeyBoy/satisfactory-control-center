@@ -62,6 +62,23 @@ export interface BuildingInfo {
 }
 
 /**
+ * A schematic: a HUB milestone, MAM research node, alternate-recipe unlock,
+ * or similar. `type` is the raw `mType` value (`EST_Milestone`, `EST_MAM`,
+ * `EST_Alternate`, `EST_HardDrive`, `EST_ResourceSink`, `EST_Tutorial`,
+ * `EST_Custom`) — kept as the game's own string rather than a narrower enum,
+ * since v1 only ever needs to filter or label by it, never branch deeply.
+ */
+export interface SchematicInfo {
+  className: string;
+  displayName: string;
+  type: string;
+  /** The full cost to purchase this schematic, in the same shape a recipe's
+   *  ingredients are — a save only ever records what's been paid off, never
+   *  this total, so ingredient-progress UI needs both. */
+  cost: RecipeAmount[];
+}
+
+/**
  * Reduce a class path to the class name the Docs file is keyed by. Save files
  * refer to classes by full path (`/Game/…/Desc_IronPlate.Desc_IronPlate_C`) while
  * the dump keys on the bare name.
@@ -127,6 +144,19 @@ export class StaticData {
       displayName: asString(entry.fields.mDisplayName) ?? entry.className,
       powerConsumptionMW: asNumber(entry.fields.mPowerConsumption) ?? 0,
       powerProductionMW: asNumber(entry.fields.mPowerProduction) ?? 0,
+    };
+  }
+
+  schematic(classNameOrPath: string): SchematicInfo | null {
+    const entry = this.entry(classNameOrPath);
+    if (!entry || entry.fields.mType === undefined) return null;
+    return {
+      className: entry.className,
+      displayName: asString(entry.fields.mDisplayName) ?? entry.className,
+      type: asString(entry.fields.mType) ?? "",
+      // A schematic's cost has no duration to derive a rate from — reusing
+      // parseAmounts still gets the ItemClass/Amount decoding for free.
+      cost: this.parseAmounts(asString(entry.fields.mCost), 0),
     };
   }
 
