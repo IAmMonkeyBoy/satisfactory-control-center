@@ -225,6 +225,19 @@ describe("codex popover lookup", () => {
     await fetch(`http://localhost:${port}/api/codex/item/Desc%20With%20Space_C`);
     expect(lastCodexLookup).toEqual({ kind: "item", className: "Desc With Space_C" });
   });
+
+  it("400s on malformed percent-encoding rather than crashing the server", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/codex/item/Desc%`);
+    expect(res.status).toBe(400);
+    expect(lastCodexLookup).toBeUndefined();
+
+    // The server must still be alive for the next request — this is the
+    // regression an uncaught decodeURIComponent throw would cause.
+    const followUp = await fetch(`http://localhost:${port}/api/codex/item/Desc_IronPlate_C`);
+    expect(followUp.status).toBe(200);
+  });
 });
 
 describe("codex popover icon", () => {
@@ -260,5 +273,15 @@ describe("codex popover icon", () => {
 
     const res = await fetch(`http://localhost:${port}/api/codex/icon/Desc_IronPlate_C`);
     expect(res.status).toBe(404);
+  });
+
+  it("400s on malformed percent-encoding rather than crashing the server", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/codex/icon/Desc%`);
+    expect(res.status).toBe(400);
+
+    const followUp = await fetch(`http://localhost:${port}/api/codex/icon/Desc_IronPlate_C`);
+    expect(followUp.status).not.toBe(0);
   });
 });

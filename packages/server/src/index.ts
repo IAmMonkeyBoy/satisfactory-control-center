@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildCodexEntry } from "./codex/codex.ts";
+import { buildCodexEntry, resolveCodexIconPath } from "./codex/codex.ts";
 import { errorMessage } from "./errorMessage.ts";
 import { findDocsFile, findIconsDirectory, findSaveDirectory } from "./gameFiles.ts";
 import { createServer } from "./httpServer.ts";
@@ -45,7 +45,7 @@ const server = createServer({
   buildMapSnapshot: (now) => store.mapSnapshot(now),
   lookupCodex: (kind, className) => buildCodexEntry(staticData, kind, className),
   resolveIconPath: (className) =>
-    iconsDirectory ? path.join(iconsDirectory, `${className}.png`) : null,
+    iconsDirectory ? resolveCodexIconPath(iconsDirectory, className) : null,
 });
 
 server.listen(PORT, () => {

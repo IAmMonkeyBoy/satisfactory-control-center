@@ -3,6 +3,7 @@
  * features: Codex popover") from the static-data module — the seed of the
  * v2 full codex, per the spec's "Reserved for v2".
  */
+import path from "node:path";
 import type { CodexAmount, CodexEntry, CodexKind, CodexRecipe } from "@scc/shared";
 import {
   classNameFromPath,
@@ -84,4 +85,30 @@ export function buildCodexEntry(
     powerProductionMW: building.powerProductionMW,
     iconUrl,
   };
+}
+
+/** Every character a real game class name ever contains (`Desc_IronPlate_C`,
+ *  `Schematic_8-5_C`) — no `/`, `\`, or `.`, so nothing matching this can
+ *  spell a path-traversal segment in the first place. */
+const CLASS_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Resolve a className (untrusted: it comes straight off the icon route's
+ * request path) to its icon file inside `iconsDirectory`, or null when the
+ * name doesn't look like a real class name or the resolved path would
+ * escape that directory. Two independent checks rather than one: the
+ * grammar check rejects the input outright, and the resolved-path check
+ * catches anything the grammar didn't anticipate (e.g. a symlink inside
+ * `iconsDirectory` pointing back out) — the same belt-and-suspenders
+ * pattern `staticFiles.ts`'s `resolveFile` already uses for the dashboard's
+ * static assets.
+ */
+export function resolveCodexIconPath(iconsDirectory: string, className: string): string | null {
+  if (!CLASS_NAME_PATTERN.test(className)) return null;
+
+  const root = path.resolve(iconsDirectory);
+  const candidate = path.resolve(root, `${className}.png`);
+  if (candidate !== root && !candidate.startsWith(root + path.sep)) return null;
+
+  return candidate;
 }

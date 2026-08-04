@@ -101,17 +101,26 @@ export function createServer(options: ServerOptions): http.Server {
     }
 
     if (req.method === "GET" && url.pathname.startsWith("/api/codex/icon/")) {
-      const className = decodeURIComponent(url.pathname.slice("/api/codex/icon/".length));
+      const className = decodeClassName(url.pathname.slice("/api/codex/icon/".length));
+      if (className === null) {
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Bad request");
+        return;
+      }
       handleCodexIcon(res, resolveIconPath(className));
       return;
     }
 
     const codexMatch = /^\/api\/codex\/([^/]+)\/([^/]+)$/.exec(url.pathname);
     if (req.method === "GET" && codexMatch) {
+      const className = decodeClassName(codexMatch[2]!);
+      if (className === null) {
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Bad request");
+        return;
+      }
       const kindResult = codexKindSchema.safeParse(codexMatch[1]);
-      const entry = kindResult.success
-        ? lookupCodex(kindResult.data, decodeURIComponent(codexMatch[2]!))
-        : null;
+      const entry = kindResult.success ? lookupCodex(kindResult.data, className) : null;
       if (!entry) {
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Not found");
@@ -142,6 +151,21 @@ export function createServer(options: ServerOptions): http.Server {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Not found");
   });
+}
+
+/**
+ * Decode a codex route's className path segment, or null on malformed
+ * percent-encoding (e.g. a request for `/api/codex/icon/%`). `decodeURIComponent`
+ * throws `URIError` on invalid escapes; left uncaught here, that throw would
+ * escape the synchronous request handler and crash the whole server on a
+ * single bad request, taking down every open SSE connection with it.
+ */
+function decodeClassName(segment: string): string | null {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
 }
 
 /**

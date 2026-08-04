@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import path from "node:path";
 import { testStaticData } from "../staticData/staticDataTestSupport.ts";
-import { buildCodexEntry } from "./codex.ts";
+import { buildCodexEntry, resolveCodexIconPath } from "./codex.ts";
 
 const staticData = testStaticData();
 
@@ -70,5 +71,34 @@ describe("buildCodexEntry — building", () => {
 
   it("returns null for a class the dump doesn't cover", () => {
     expect(buildCodexEntry(staticData, "building", "Build_NotInTheDump_C")).toBeNull();
+  });
+});
+
+describe("resolveCodexIconPath", () => {
+  const iconsDir = path.join("/fixture", "icons");
+
+  it("resolves a well-formed class name to a file inside the icons directory", () => {
+    expect(resolveCodexIconPath(iconsDir, "Desc_IronPlate_C")).toBe(
+      path.join(iconsDir, "Desc_IronPlate_C.png"),
+    );
+  });
+
+  it("accepts the hyphenated class names schematics use", () => {
+    expect(resolveCodexIconPath(iconsDir, "Schematic_8-5_C")).toBe(
+      path.join(iconsDir, "Schematic_8-5_C.png"),
+    );
+  });
+
+  it("rejects a traversal attempt disguised as a class name", () => {
+    expect(resolveCodexIconPath(iconsDir, "../../etc/passwd")).toBeNull();
+    expect(resolveCodexIconPath(iconsDir, "../secret")).toBeNull();
+  });
+
+  it("rejects a class name containing a path separator", () => {
+    expect(resolveCodexIconPath(iconsDir, "sub/Desc_IronPlate_C")).toBeNull();
+  });
+
+  it("rejects an empty class name", () => {
+    expect(resolveCodexIconPath(iconsDir, "")).toBeNull();
   });
 });
