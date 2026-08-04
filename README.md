@@ -16,7 +16,7 @@ npm-workspaces monorepo ([ADR 0005](docs/adr/0005-npm-workspaces-monorepo.md)):
 ```bash
 npm install
 npm run build            # builds shared, server, and web
-npm test                 # typed SSE contract + static-serving tests
+npm test                 # Vitest: ingestors, WorldState merge, panels, map, SSE contract
 npm run typecheck        # all workspaces
 ```
 
@@ -36,6 +36,7 @@ npm run start --workspace @scc/server
 
 ## Status
 
-Build 1 (foundation): a dummy `WorldState` flows server → dashboard over SSE with
-browser-native reconnect. Real ingestors (save watcher, FRM client) and the
-feature panels land in later slices.
+v1 complete — all nine build slices from [docs/spec.md](docs/spec.md) are merged:
+save watcher and FRM client ingestors feed a live `WorldState` over SSE, and the
+dashboard has the full panel set (power/alarms, production efficiency,
+storage/inventory, milestones, Tier 1 map, codex popovers).
