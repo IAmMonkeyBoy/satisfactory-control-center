@@ -9,7 +9,7 @@ import { PanelFrame } from "../alarms/PanelFrame";
 import { formatDuration } from "../format";
 import {
   formatAlternates,
-  formatHardDrives,
+  formatHardDriveResults,
   ingredientPercent,
 } from "../milestones/milestonesFormat";
 import { FreshnessTag } from "./FreshnessTag";
@@ -62,7 +62,7 @@ export function MilestonesPanel({
 
       <Section title="Collectibles">
         <ul className="space-y-1 text-sm text-neutral-300">
-          <li>{formatHardDrives(collectibles.hardDrivesAwaitingResearch)}</li>
+          <li>{formatHardDriveResults(collectibles.hardDriveResultsAwaitingClaim)}</li>
           <li>{formatAlternates(collectibles.alternateRecipesUnlocked)}</li>
           <li className="text-neutral-500">
             {playDurationSeconds === null

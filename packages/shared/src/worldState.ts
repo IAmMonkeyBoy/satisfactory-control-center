@@ -200,10 +200,13 @@ export const activeResearchSchema = z.object({
 });
 export type ActiveResearch = z.infer<typeof activeResearchSchema>;
 
-/** The compact collectibles row: hard drives waiting at the MAM to be
- *  researched, and alternate recipes already unlocked from past research. */
+/** The compact collectibles row: hard drive research results generated and
+ *  waiting on the player to pick one (a hard drive's analysis finishes with
+ *  a set of candidate alternate-recipe rewards; the save calls this set
+ *  "unclaimed" until one is chosen — not a drive sitting uncollected), and
+ *  alternate recipes already unlocked from past research. */
 export const collectiblesStateSchema = z.object({
-  hardDrivesAwaitingResearch: z.number(),
+  hardDriveResultsAwaitingClaim: z.number(),
   alternateRecipesUnlocked: z.number(),
 });
 export type CollectiblesState = z.infer<typeof collectiblesStateSchema>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAlternates, formatHardDrives, ingredientPercent } from "./milestonesFormat.ts";
+import { formatAlternates, formatHardDriveResults, ingredientPercent } from "./milestonesFormat.ts";
 
 describe("ingredientPercent", () => {
   it("computes a rounded percent of target reached", () => {
@@ -36,11 +36,11 @@ describe("ingredientPercent", () => {
   });
 });
 
-describe("formatHardDrives", () => {
+describe("formatHardDriveResults", () => {
   it("pluralizes the count", () => {
-    expect(formatHardDrives(1)).toBe("1 hard drive waiting");
-    expect(formatHardDrives(3)).toBe("3 hard drives waiting");
-    expect(formatHardDrives(0)).toBe("0 hard drives waiting");
+    expect(formatHardDriveResults(1)).toBe("1 hard drive result to claim");
+    expect(formatHardDriveResults(3)).toBe("3 hard drive results to claim");
+    expect(formatHardDriveResults(0)).toBe("0 hard drive results to claim");
   });
 });
 

@@ -89,7 +89,7 @@ export function emptyBaselineDomains(): BaselineDomains {
       currentMilestone: null,
       spaceElevatorPhase: null,
       activeResearch: [],
-      collectibles: { hardDrivesAwaitingResearch: 0, alternateRecipesUnlocked: 0 },
+      collectibles: { hardDriveResultsAwaitingClaim: 0, alternateRecipesUnlocked: 0 },
       playDurationSeconds: null,
     },
     containers: [],
@@ -396,13 +396,22 @@ function extractSink(index: SaveIndex): SinkState {
  */
 function extractMilestones(index: SaveIndex, staticData: StaticData): MilestonesState {
   const schematicManager = index.singleton("BP_SchematicManager_C");
+  const purchased = purchasedSchematicPaths(schematicManager);
+
   // `mActiveSchematic` is what resources are currently being sold towards
-  // (so it's the one that advances as ingredients are submitted in-game);
-  // `mLastActiveSchematic` is a fallback for the gap between completing one
-  // milestone and selecting the next, when the active slot briefly empties.
+  // (so it's the one that advances as ingredients are submitted in-game).
+  // `mLastActiveSchematic` is only a safe fallback for the gap between
+  // completing one milestone and selecting the next, when the active slot
+  // briefly empties — it is *not* transient once purchased, it just keeps
+  // pointing at whatever was last worked on, so a completed milestone can
+  // sit there indefinitely. Using it unconditionally would render that
+  // already-finished milestone as "current" at 0% (its `mPaidOffSchematic`
+  // entry is cleared on purchase), so it's only trusted here when it hasn't
+  // actually been purchased yet.
+  const lastActive = objectPath(schematicManager?.properties.mLastActiveSchematic);
   const activeSchematic =
     objectPath(schematicManager?.properties.mActiveSchematic) ??
-    objectPath(schematicManager?.properties.mLastActiveSchematic);
+    (lastActive !== undefined && !purchased.has(lastActive) ? lastActive : undefined);
 
   const phaseManager = index.singleton("BP_GamePhaseManager_C");
   const currentPhase = objectPath(phaseManager?.properties.mCurrentGamePhase);
@@ -415,9 +424,24 @@ function extractMilestones(index: SaveIndex, staticData: StaticData): Milestones
       : null,
     spaceElevatorPhase: currentPhase ? gamePhaseLabel(currentPhase) : null,
     activeResearch: extractActiveResearch(researchManager, staticData),
-    collectibles: extractCollectibles(researchManager, schematicManager, staticData),
+    collectibles: extractCollectibles(researchManager, purchased, staticData),
     playDurationSeconds: null,
   };
+}
+
+/** The classes of every schematic the save records as purchased —
+ *  `mPurchasedSchematics` — shared by the active-milestone fallback (a
+ *  purchased schematic is never "current") and the collectibles row's
+ *  alternate-recipe count. */
+function purchasedSchematicPaths(schematicManager: SaveObjectView | undefined): Set<string> {
+  const purchased = new Set<string>();
+  if (!schematicManager) return purchased;
+
+  for (const entry of arrayValues(schematicManager, "mPurchasedSchematics")) {
+    const path = objectPath(entry);
+    if (path !== undefined) purchased.add(path);
+  }
+  return purchased;
 }
 
 /** The active milestone's ingredients, each paired with how much of its cost
@@ -498,32 +522,29 @@ function extractActiveResearch(
   return research;
 }
 
-/** The compact collectibles row: hard drives collected but not yet
- *  researched, and alternate recipes already unlocked. Both come from
- *  data this build already trusts (the research manager's unclaimed-drive
- *  list, and the schematic manager's purchased list cross-referenced
- *  against static data) rather than needing per-map collectible-spawn
- *  knowledge, which v1 doesn't have (spec, "Reserved for v2").
+/** The compact collectibles row: hard drive analyses that have finished
+ *  generating reward candidates but haven't been claimed yet (`mUnclaimedHardDriveData` —
+ *  Coffee Stain's own header calls this "the stored hard drives that we have
+ *  researched"; despite the name it is a post-research queue, not drives
+ *  waiting to be researched), and alternate recipes already unlocked.
+ *  Neither needs per-map collectible-spawn knowledge, which v1 doesn't have
+ *  (spec, "Reserved for v2").
  */
 function extractCollectibles(
   researchManager: SaveObjectView | undefined,
-  schematicManager: SaveObjectView | undefined,
+  purchased: Set<string>,
   staticData: StaticData,
 ): MilestonesState["collectibles"] {
-  const hardDrivesAwaitingResearch = researchManager
+  const hardDriveResultsAwaitingClaim = researchManager
     ? arrayValues(researchManager, "mUnclaimedHardDriveData").length
     : 0;
 
   let alternateRecipesUnlocked = 0;
-  if (schematicManager) {
-    for (const purchased of arrayValues(schematicManager, "mPurchasedSchematics")) {
-      const path = objectPath(purchased);
-      if (path && staticData.schematic(path)?.type === "EST_Alternate")
-        alternateRecipesUnlocked += 1;
-    }
+  for (const path of purchased) {
+    if (staticData.schematic(path)?.type === "EST_Alternate") alternateRecipesUnlocked += 1;
   }
 
-  return { hardDrivesAwaitingResearch, alternateRecipesUnlocked };
+  return { hardDriveResultsAwaitingClaim, alternateRecipesUnlocked };
 }
 
 /**

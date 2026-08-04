@@ -9,8 +9,11 @@ export function ingredientPercent(ingredient: MilestoneIngredient): number {
   return Math.min(100, Math.round((ingredient.amount / ingredient.targetAmount) * 100));
 }
 
-export function formatHardDrives(count: number): string {
-  return `${count.toLocaleString()} ${count === 1 ? "hard drive" : "hard drives"} waiting`;
+/** A count of hard drive research results generated and waiting on the
+ *  player to pick one — not drives sitting uncollected (see
+ *  `CollectiblesState.hardDriveResultsAwaitingClaim`'s doc comment). */
+export function formatHardDriveResults(count: number): string {
+  return `${count.toLocaleString()} hard drive ${count === 1 ? "result" : "results"} to claim`;
 }
 
 export function formatAlternates(count: number): string {

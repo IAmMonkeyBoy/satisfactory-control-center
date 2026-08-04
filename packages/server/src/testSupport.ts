@@ -118,7 +118,7 @@ export function sampleWorldState(now: number): WorldState {
             secondsRemaining: 90,
           },
         ],
-        collectibles: { hardDrivesAwaitingResearch: 2, alternateRecipesUnlocked: 7 },
+        collectibles: { hardDriveResultsAwaitingClaim: 2, alternateRecipesUnlocked: 7 },
         playDurationSeconds: 5 * 60 * 60,
       },
     },

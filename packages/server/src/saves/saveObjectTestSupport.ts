@@ -269,8 +269,10 @@ export interface OngoingResearch {
 
 /**
  * The research manager, which records in-flight MAM research
- * (`mSavedOngoingResearch`) and hard drives collected but not yet researched
- * (`mUnclaimedHardDriveData`).
+ * (`mSavedOngoingResearch`) and hard drive analyses whose reward candidates
+ * have been generated but not yet claimed (`mUnclaimedHardDriveData` — per
+ * Coffee Stain's own header, "the stored hard drives that we have
+ * researched"; a post-research queue, not drives awaiting research).
  */
 export function researchManager(options: {
   ongoing?: OngoingResearch[];

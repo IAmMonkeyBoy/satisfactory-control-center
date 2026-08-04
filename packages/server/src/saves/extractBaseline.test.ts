@@ -372,7 +372,7 @@ describe("milestones baseline", () => {
       },
       spaceElevatorPhase: "Phase 3",
       activeResearch: [],
-      collectibles: { hardDrivesAwaitingResearch: 0, alternateRecipesUnlocked: 0 },
+      collectibles: { hardDriveResultsAwaitingClaim: 0, alternateRecipesUnlocked: 0 },
       playDurationSeconds: null,
     });
   });
@@ -396,6 +396,19 @@ describe("milestones baseline", () => {
     const baseline = baselineOf([schematicManager({ lastActiveSchematic: milestonePath })]);
 
     expect(baseline.milestones.currentMilestone?.className).toBe("Schematic_8-5_C");
+  });
+
+  it("does not resurrect an already-purchased milestone as current", () => {
+    // A real save can have mActiveSchematic absent (between selections) while
+    // mLastActiveSchematic still points at whatever was last worked on —
+    // including a milestone that has since been completed and purchased.
+    // mPaidOffSchematic is cleared on purchase, so trusting the fallback
+    // unconditionally would render a finished milestone as "current" at 0%.
+    const baseline = baselineOf([
+      schematicManager({ lastActiveSchematic: milestonePath, purchased: [milestonePath] }),
+    ]);
+
+    expect(baseline.milestones.currentMilestone).toBeNull();
   });
 
   it("prefers the active schematic over the last active one when both are present", () => {
@@ -425,10 +438,10 @@ describe("milestones baseline", () => {
     ]);
   });
 
-  it("counts hard drives collected but not yet researched", () => {
+  it("counts hard drive results waiting to be claimed", () => {
     const baseline = baselineOf([researchManager({ unclaimedHardDriveCount: 3 })]);
 
-    expect(baseline.milestones.collectibles.hardDrivesAwaitingResearch).toBe(3);
+    expect(baseline.milestones.collectibles.hardDriveResultsAwaitingClaim).toBe(3);
   });
 
   it("counts alternate recipes among the purchased schematics", () => {
@@ -442,7 +455,7 @@ describe("milestones baseline", () => {
       currentMilestone: null,
       spaceElevatorPhase: null,
       activeResearch: [],
-      collectibles: { hardDrivesAwaitingResearch: 0, alternateRecipesUnlocked: 0 },
+      collectibles: { hardDriveResultsAwaitingClaim: 0, alternateRecipesUnlocked: 0 },
       playDurationSeconds: null,
     });
   });

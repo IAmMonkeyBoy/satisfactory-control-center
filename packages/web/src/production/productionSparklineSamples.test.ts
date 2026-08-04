@@ -23,7 +23,7 @@ function worldState(items: WorldState["production"]["data"]["items"]): WorldStat
         currentMilestone: null,
         spaceElevatorPhase: null,
         activeResearch: [],
-        collectibles: { hardDrivesAwaitingResearch: 0, alternateRecipesUnlocked: 0 },
+        collectibles: { hardDriveResultsAwaitingClaim: 0, alternateRecipesUnlocked: 0 },
         playDurationSeconds: null,
       },
     },
