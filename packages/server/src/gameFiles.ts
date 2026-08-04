@@ -18,6 +18,13 @@ const SAVE_DIR_ENV = "SCC_SAVE_DIR";
 /** Point the static-data loader at a specific `en-US.json`. */
 const DOCS_FILE_ENV = "SCC_DOCS_FILE";
 
+/** Point the codex popover's icon lookup at a directory of extracted icon
+ *  images. Unlike the save directory and Docs file, this has no on-disk
+ *  default to probe for: icon extraction is a manual step Aaron does
+ *  himself (spec, "Licensing constraints" — nothing extracted is ever
+ *  vendored), so there is no install-relative path to guess. */
+const ICONS_DIR_ENV = "SCC_ICONS_DIR";
+
 const DOCS_RELATIVE_PATH = path.join("CommunityResources", "Docs", "en-US.json");
 
 /**
@@ -80,6 +87,13 @@ export async function findDocsFile(): Promise<string | null> {
     }
   }
   return null;
+}
+
+/** Locate the icon image directory, or null when none is configured. */
+export async function findIconsDirectory(): Promise<string | null> {
+  const override = process.env[ICONS_DIR_ENV];
+  if (!override) return null;
+  return (await isDirectory(override)) ? override : null;
 }
 
 async function newestSaveTime(directory: string): Promise<number | null> {

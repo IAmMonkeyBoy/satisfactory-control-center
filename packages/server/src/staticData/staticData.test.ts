@@ -65,6 +65,44 @@ describe("recipes and rates", () => {
   });
 });
 
+describe("descriptions", () => {
+  it("reads an item's description", () => {
+    expect(staticData.item("Desc_IronPlate_C")?.description).toBe("Used for crafting.");
+  });
+
+  it("reports null where the dump carries no description", () => {
+    expect(staticData.item("Desc_IronIngot_C")?.description).toBeNull();
+    expect(staticData.building("Build_ConstructorMk1_C")?.description).toBeNull();
+  });
+});
+
+describe("recipesProducing / recipesProducedIn", () => {
+  it("finds the recipes that produce a given item", () => {
+    const recipes = staticData.recipesProducing("Desc_IronPlate_C");
+    expect(recipes.map((r) => r.className)).toEqual(["Recipe_IronPlate_C"]);
+  });
+
+  it("accepts a save's full class path as well as a bare class name", () => {
+    const recipes = staticData.recipesProducing(
+      "/Game/FactoryGame/Resource/Parts/IronPlate/Desc_IronPlate.Desc_IronPlate_C",
+    );
+    expect(recipes.map((r) => r.className)).toEqual(["Recipe_IronPlate_C"]);
+  });
+
+  it("returns nothing for an item no recipe produces", () => {
+    expect(staticData.recipesProducing("Desc_IronIngot_C")).toEqual([]);
+  });
+
+  it("finds the recipes a building can run", () => {
+    const recipes = staticData.recipesProducedIn("Build_ConstructorMk1_C");
+    expect(recipes.map((r) => r.className)).toEqual(["Recipe_IronPlate_C"]);
+  });
+
+  it("returns nothing for a building no recipe runs in", () => {
+    expect(staticData.recipesProducedIn("Build_GeneratorCoal_C")).toEqual([]);
+  });
+});
+
 describe("building power", () => {
   it("reads a generator's rated power production", () => {
     expect(staticData.building("Build_GeneratorCoal_C")?.powerProductionMW).toBe(75);

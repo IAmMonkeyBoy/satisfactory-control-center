@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import type { DeathCrate, StorageItem, StorageSearchResponse, WorldState } from "@scc/shared";
 import { PanelFrame } from "../alarms/PanelFrame";
+import { CodexTrigger } from "../codex/CodexTrigger";
 import { formatCoupons, formatLocation, formatPoints, hasBaseline } from "../storage/storageFormat";
 import { useStorageSearch, type StorageSearchStatus } from "../storage/useStorageSearch";
 import { FreshnessTag } from "./FreshnessTag";
@@ -127,9 +128,14 @@ function SearchResults({
       {result.matches.map((match, index) => (
         <li key={`${match.containerId}-${match.itemClassName}-${index}`}>
           <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate text-neutral-200" title={match.containerDisplayName}>
+            <CodexTrigger
+              kind="item"
+              gameClassName={match.itemClassName}
+              className="truncate text-left text-neutral-200"
+              title={match.containerDisplayName}
+            >
               {match.itemDisplayName} × {match.count.toLocaleString()}
-            </span>
+            </CodexTrigger>
           </div>
           <div className="text-xs text-neutral-600">
             {match.containerDisplayName} · {formatLocation(match.location)}
@@ -147,7 +153,13 @@ function DepotItems({ items }: { items: StorageItem[] }): JSX.Element {
     <ul className="space-y-1 text-sm">
       {items.map((item) => (
         <li key={item.className} className="flex items-baseline justify-between gap-3">
-          <span className="truncate text-neutral-300">{item.displayName}</span>
+          <CodexTrigger
+            kind="item"
+            gameClassName={item.className}
+            className="truncate text-left text-neutral-300"
+          >
+            {item.displayName}
+          </CodexTrigger>
           <span className="text-neutral-500">{item.count.toLocaleString()}</span>
         </li>
       ))}
@@ -181,7 +193,13 @@ function DeathCrateList({
             <ul className="text-xs text-neutral-500">
               {crate.items.map((item) => (
                 <li key={item.className} className="flex items-baseline justify-between gap-2">
-                  <span className="truncate">{item.displayName}</span>
+                  <CodexTrigger
+                    kind="item"
+                    gameClassName={item.className}
+                    className="truncate text-left"
+                  >
+                    {item.displayName}
+                  </CodexTrigger>
                   <span>{item.count.toLocaleString()}</span>
                 </li>
               ))}

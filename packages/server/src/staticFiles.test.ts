@@ -35,6 +35,8 @@ async function listen(): Promise<number> {
     buildWorldState: sampleWorldState,
     searchStorage: sampleStorageSearchResponse,
     buildMapSnapshot: sampleMapSnapshot,
+    lookupCodex: () => null,
+    resolveIconPath: () => null,
   });
   await new Promise<void>((resolve) => server!.listen(0, resolve));
   return boundPort(server);

@@ -1,5 +1,6 @@
 import type { JSX } from "react";
 import { AlarmProvider } from "./alarms/AlarmContext";
+import { CodexProvider } from "./codex/CodexContext";
 import { MapDeck } from "./layout/MapDeck";
 import { useWorldState } from "./useWorldState";
 
@@ -13,7 +14,9 @@ export default function App(): JSX.Element {
 
   return (
     <AlarmProvider>
-      <MapDeck worldState={worldState} status={status} />
+      <CodexProvider>
+        <MapDeck worldState={worldState} status={status} />
+      </CodexProvider>
     </AlarmProvider>
   );
 }

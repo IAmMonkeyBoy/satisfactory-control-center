@@ -34,6 +34,10 @@ export interface MapSceneProps {
    *  (see `alarms/types.ts`'s doc comment on `Alarm.location`). */
   alarms: readonly Alarm[];
   layers: MapLayerVisibility;
+  /** Clicking a building opens the codex popover (spec, "v1 features: Codex
+   *  popover": "Clicking a building on the Tier 1 map"). Undefined is a
+   *  valid no-op — the map still renders and pans/zooms without it. */
+  onBuildingClick?: (building: MapBuilding) => void;
 }
 
 /** Small fixed vertical offsets (scene metres) that stack the four layers
@@ -52,6 +56,10 @@ const GRID_DIVISIONS = 80;
 const CAMERA_HEIGHT_M = 500;
 
 const WHEEL_ZOOM_FACTOR = 1.1;
+
+/** Pointer movement, in CSS pixels, below which a press-and-release counts
+ *  as a click rather than a pan drag. */
+const CLICK_DRAG_THRESHOLD_PX = 5;
 
 /** Laying every flat marker shape from its default XY orientation onto the
  *  ground (XZ) plane. */
@@ -107,7 +115,10 @@ function disposeMarker(group: THREE.Group): void {
 /** Sync one layer's group of markers against the latest entities: update
  *  existing markers in place, create new ones, and remove/dispose any whose
  *  id is no longer present — never a full teardown-and-rebuild per snapshot
- *  tick, so a marker that's still there doesn't flicker. */
+ *  tick, so a marker that's still there doesn't flicker. Every marker also
+ *  carries its source entity in `userData.entity`, so a raycast hit (see
+ *  the building-click handler below) can recover the domain object a mesh
+ *  represents without a second id-keyed lookup. */
 function syncLayer<T>(
   group: THREE.Group,
   meshes: Map<string, THREE.Group>,
@@ -129,6 +140,7 @@ function syncLayer<T>(
     } else {
       markerMaterial(marker).color.set(colorOf(item));
     }
+    marker.userData.entity = item;
     place(marker, item);
   }
   for (const [id, marker] of meshes) {
@@ -275,9 +287,20 @@ export function applyViewToCamera(
  * `.visible` flags, so panning/zooming (which bypasses React state entirely
  * for per-frame smoothness) never fights a re-render.
  */
-export function MapScene({ mapSnapshot, alarms, layers }: MapSceneProps): JSX.Element {
+export function MapScene({
+  mapSnapshot,
+  alarms,
+  layers,
+  onBuildingClick,
+}: MapSceneProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const contextRef = useRef<ThreeContext | null>(null);
+  // A ref rather than an effect dependency: the mount effect below sets up
+  // the scene once ([] deps) and reads this at click time, so a new
+  // `onBuildingClick` identity across renders doesn't need to tear the
+  // scene down and rebuild it.
+  const onBuildingClickRef = useRef(onBuildingClick);
+  onBuildingClickRef.current = onBuildingClick;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -336,10 +359,12 @@ export function MapScene({ mapSnapshot, alarms, layers }: MapSceneProps): JSX.El
 
     let dragging = false;
     let lastPointer = { x: 0, z: 0 };
+    let pointerDownPos: { x: number; y: number } | null = null;
 
     const onPointerDown = (event: PointerEvent): void => {
       dragging = true;
       lastPointer = { x: event.clientX, z: event.clientY };
+      pointerDownPos = { x: event.clientX, y: event.clientY };
       renderer.domElement.setPointerCapture(event.pointerId);
     };
 
@@ -365,6 +390,50 @@ export function MapScene({ mapSnapshot, alarms, layers }: MapSceneProps): JSX.El
       renderer.domElement.releasePointerCapture(event.pointerId);
     };
 
+    const raycaster = new THREE.Raycaster();
+
+    /** Recover the `MapBuilding` a raycast hit represents by walking up from
+     *  the hit mesh to the marker `Group` that carries it (see `syncLayer`'s
+     *  doc comment) — a hit always lands on the mesh, never the group
+     *  itself, since only the mesh has geometry to intersect. */
+    function buildingAt(object: THREE.Object3D): MapBuilding | undefined {
+      let current: THREE.Object3D | null = object;
+      while (current && current !== context.groups.buildings) {
+        if (current.userData.entity) return current.userData.entity as MapBuilding;
+        current = current.parent;
+      }
+      return undefined;
+    }
+
+    /** A drag pans the map; only a near-zero-movement press-and-release
+     *  counts as a click on a building (spec: "Clicking a building on the
+     *  Tier 1 map"). Hidden buildings (layer toggled off) aren't hit —
+     *  Three.js's raycaster tests `visible: false` objects unless a caller
+     *  filters them out itself. */
+    const onPointerUp = (event: PointerEvent): void => {
+      const isClick =
+        pointerDownPos !== null &&
+        Math.hypot(event.clientX - pointerDownPos.x, event.clientY - pointerDownPos.y) <=
+          CLICK_DRAG_THRESHOLD_PX;
+      stopDragging(event);
+      pointerDownPos = null;
+      if (!isClick || !onBuildingClickRef.current || !context.groups.buildings.visible) return;
+
+      const { width, height, left, top } = container.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((event.clientX - left) / Math.max(1, width)) * 2 - 1,
+        1 - ((event.clientY - top) / Math.max(1, height)) * 2,
+      );
+      raycaster.setFromCamera(ndc, camera);
+      for (const hit of raycaster.intersectObjects(context.groups.buildings.children, true)) {
+        const building = buildingAt(hit.object);
+        if (building) {
+          onBuildingClickRef.current(building);
+          return;
+        }
+      }
+    };
+
     const onWheel = (event: WheelEvent): void => {
       event.preventDefault();
       const { width, height, left, top } = container.getBoundingClientRect();
@@ -385,7 +454,7 @@ export function MapScene({ mapSnapshot, alarms, layers }: MapSceneProps): JSX.El
     const dom = renderer.domElement;
     dom.addEventListener("pointerdown", onPointerDown);
     dom.addEventListener("pointermove", onPointerMove);
-    dom.addEventListener("pointerup", stopDragging);
+    dom.addEventListener("pointerup", onPointerUp);
     dom.addEventListener("pointercancel", stopDragging);
     dom.addEventListener("wheel", onWheel, { passive: false });
 
@@ -393,7 +462,7 @@ export function MapScene({ mapSnapshot, alarms, layers }: MapSceneProps): JSX.El
       resizeObserver.disconnect();
       dom.removeEventListener("pointerdown", onPointerDown);
       dom.removeEventListener("pointermove", onPointerMove);
-      dom.removeEventListener("pointerup", stopDragging);
+      dom.removeEventListener("pointerup", onPointerUp);
       dom.removeEventListener("pointercancel", stopDragging);
       dom.removeEventListener("wheel", onWheel);
       for (const markers of Object.values(context.meshes)) {

@@ -1,12 +1,15 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { findDocsFile, findSaveDirectory } from "./gameFiles.ts";
+import { buildCodexEntry, resolveCodexIconPath } from "./codex/codex.ts";
+import { errorMessage } from "./errorMessage.ts";
+import { findDocsFile, findIconsDirectory, findSaveDirectory } from "./gameFiles.ts";
 import { createServer } from "./httpServer.ts";
 import { DEFAULT_PORT as FRM_DEFAULT_PORT, type FrmClientEvent } from "./live/frmClient.ts";
 import { startLiveIngestor, type LiveEvent, type LiveIngestor } from "./live/liveIngestor.ts";
 import { createWorkerSaveParser } from "./saves/saveParseClient.ts";
 import { startSaveWatcher, type SaveWatcher, type WatcherEvent } from "./saves/saveWatcher.ts";
 import { createWorldStateStore } from "./saves/worldStateStore.ts";
+import { loadStaticData, parseDocs, type StaticData } from "./staticData/staticData.ts";
 
 const PORT = Number(process.env.PORT ?? 4317);
 
@@ -23,11 +26,26 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const staticDir = path.resolve(here, "../../web/dist");
 
 const store = createWorldStateStore();
+
+// Both start empty/unset and are filled in by `startBaselineIngestor` below,
+// independently of whether a save directory exists — the codex popover and
+// its icons only need a game install, not a followed session. Held in
+// closures (rather than threaded through `createServer`'s options at call
+// time) because the server starts listening before either is known: probing
+// for the install is async, and the dashboard should serve immediately with
+// an empty WorldState rather than wait on it (mirrors the save watcher's own
+// "no install found, no problem" startup below).
+let staticData: StaticData = parseDocs([]);
+let iconsDirectory: string | null = null;
+
 const server = createServer({
   staticDir,
   buildWorldState: (now) => store.snapshot(now),
   searchStorage: (query) => store.searchStorage(query),
   buildMapSnapshot: (now) => store.mapSnapshot(now),
+  lookupCodex: (kind, className) => buildCodexEntry(staticData, kind, className),
+  resolveIconPath: (className) =>
+    iconsDirectory ? resolveCodexIconPath(iconsDirectory, className) : null,
 });
 
 server.listen(PORT, () => {
@@ -37,6 +55,7 @@ server.listen(PORT, () => {
   console.log(`  REST snapshot: http://localhost:${PORT}/api/worldstate`);
   console.log(`  Storage search: http://localhost:${PORT}/api/storage/search?item=`);
   console.log(`  Map snapshot:  http://localhost:${PORT}/api/map`);
+  console.log(`  Codex lookup:  http://localhost:${PORT}/api/codex/:kind/:className`);
 });
 
 // Set once the save watcher starts, below — read by `logLiveEvent` so a live
@@ -69,14 +88,31 @@ console.log(`Watching for FRM at ws://${FRM_HOST}:${FRM_PORT}/`);
  * shows an empty WorldState with no followed session rather than failing to start.
  */
 async function startBaselineIngestor(liveIngestor: LiveIngestor): Promise<void> {
-  const [saveDirectory, docsPath] = await Promise.all([findSaveDirectory(), findDocsFile()]);
+  const [saveDirectory, docsPath, iconsDir] = await Promise.all([
+    findSaveDirectory(),
+    findDocsFile(),
+    findIconsDirectory(),
+  ]);
+  iconsDirectory = iconsDir;
+
+  // Loaded here rather than only inside the parser worker: the codex
+  // popover's REST lookup runs on this (the main) thread, and needs its own
+  // copy independent of the save-parsing worker's — the two never share
+  // state across the thread boundary (ADR 0001).
+  if (docsPath) {
+    staticData = await loadStaticData(docsPath).catch((cause: unknown) => {
+      console.warn(`Static data unavailable at ${docsPath}: ${errorMessage(cause)}`);
+      return parseDocs([]);
+    });
+  } else {
+    console.warn(
+      "No game static data found — set SCC_DOCS_FILE for display names, rates, and the codex popover.",
+    );
+  }
 
   if (!saveDirectory) {
     console.warn("No SaveGames directory found — set SCC_SAVE_DIR to watch one.");
     return;
-  }
-  if (!docsPath) {
-    console.warn("No game static data found — set SCC_DOCS_FILE for display names and rates.");
   }
 
   const parser = createWorkerSaveParser({

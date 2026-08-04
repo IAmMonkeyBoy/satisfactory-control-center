@@ -1,5 +1,11 @@
 import type { Server } from "node:http";
-import type { MapSnapshot, StorageSearchResponse, WorldState } from "@scc/shared";
+import type {
+  CodexEntry,
+  CodexKind,
+  MapSnapshot,
+  StorageSearchResponse,
+  WorldState,
+} from "@scc/shared";
 
 /**
  * A populated WorldState for the transport tests. They are about the SSE and REST
@@ -187,6 +193,35 @@ export function sampleMapSnapshot(now: number): MapSnapshot {
         },
       ],
     },
+  };
+}
+
+/** A canned codex entry for the `/api/codex/:kind/:className` REST contract
+ *  test — the route and kind dispatch are exercised, not any real
+ *  static-data lookup. */
+export function sampleCodexEntry(kind: CodexKind, className: string): CodexEntry {
+  return {
+    className,
+    displayName: "Iron Plate",
+    description: "Used for crafting.",
+    kind,
+    recipes: [
+      {
+        className: "Recipe_IronPlate_C",
+        displayName: "Iron Plate",
+        ingredients: [
+          { className: "Desc_IronIngot_C", displayName: "Iron Ingot", amount: 3, perMinute: 30 },
+        ],
+        products: [
+          { className: "Desc_IronPlate_C", displayName: "Iron Plate", amount: 2, perMinute: 20 },
+        ],
+        durationSeconds: 6,
+        producedIn: [{ className: "Build_ConstructorMk1_C", displayName: "Constructor" }],
+      },
+    ],
+    powerConsumptionMW: kind === "building" ? 4 : null,
+    powerProductionMW: kind === "building" ? 0 : null,
+    iconUrl: `/api/codex/icon/${className}`,
   };
 }
 

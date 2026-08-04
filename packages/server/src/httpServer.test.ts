@@ -1,14 +1,20 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   deserializeEvent,
+  type CodexEntry,
+  type CodexKind,
   type MapSnapshot,
   type StorageSearchResponse,
   type WorldState,
 } from "@scc/shared";
-import { createServer } from "./httpServer.ts";
+import { createServer, type ServerOptions } from "./httpServer.ts";
 import {
   boundPort,
+  sampleCodexEntry,
   sampleMapSnapshot,
   sampleStorageSearchResponse,
   sampleWorldState,
@@ -16,6 +22,7 @@ import {
 
 let server: Server | undefined;
 let lastSearchQuery: string | undefined;
+let lastCodexLookup: { kind: CodexKind; className: string } | undefined;
 
 afterEach(async () => {
   if (server) {
@@ -24,9 +31,10 @@ afterEach(async () => {
     server = undefined;
   }
   lastSearchQuery = undefined;
+  lastCodexLookup = undefined;
 });
 
-async function listen(): Promise<number> {
+async function listen(overrides: Partial<ServerOptions> = {}): Promise<number> {
   server = createServer({
     pushIntervalMs: 20,
     buildWorldState: sampleWorldState,
@@ -35,6 +43,12 @@ async function listen(): Promise<number> {
       return sampleStorageSearchResponse(query);
     },
     buildMapSnapshot: sampleMapSnapshot,
+    lookupCodex: (kind, className) => {
+      lastCodexLookup = { kind, className };
+      return className === "Desc_Unknown_C" ? null : sampleCodexEntry(kind, className);
+    },
+    resolveIconPath: () => null,
+    ...overrides,
   });
   await new Promise<void>((resolve) => server!.listen(0, resolve));
   return boundPort(server);
@@ -161,5 +175,113 @@ describe("Tier 1 map", () => {
     expect(map.buildings.data[0]?.className).toBe("Build_ConstructorMk1_C");
     expect(map.movers.data[0]?.kind).toBe("player");
     expect(map.deathCrates.data[0]?.className).toBe("BP_Crate_C");
+  });
+});
+
+describe("codex popover lookup", () => {
+  it("serves a codex entry over REST, passing kind and class name through", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/codex/item/Desc_IronPlate_C`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+
+    const entry = (await res.json()) as CodexEntry;
+    expect(lastCodexLookup).toEqual({ kind: "item", className: "Desc_IronPlate_C" });
+    expect(entry.kind).toBe("item");
+    expect(entry.className).toBe("Desc_IronPlate_C");
+    expect(entry.recipes[0]?.className).toBe("Recipe_IronPlate_C");
+  });
+
+  it("serves a building entry the same way", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/codex/building/Build_ConstructorMk1_C`);
+    const entry = (await res.json()) as CodexEntry;
+
+    expect(lastCodexLookup).toEqual({ kind: "building", className: "Build_ConstructorMk1_C" });
+    expect(entry.kind).toBe("building");
+    expect(entry.powerConsumptionMW).toBe(4);
+  });
+
+  it("404s for a class the lookup doesn't know", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/codex/item/Desc_Unknown_C`);
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for an invalid kind rather than throwing", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/codex/recipe/Recipe_IronPlate_C`);
+    expect(res.status).toBe(404);
+    expect(lastCodexLookup).toBeUndefined();
+  });
+
+  it("URL-decodes the class name", async () => {
+    const port = await listen();
+
+    await fetch(`http://localhost:${port}/api/codex/item/Desc%20With%20Space_C`);
+    expect(lastCodexLookup).toEqual({ kind: "item", className: "Desc With Space_C" });
+  });
+
+  it("400s on malformed percent-encoding rather than crashing the server", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/codex/item/Desc%`);
+    expect(res.status).toBe(400);
+    expect(lastCodexLookup).toBeUndefined();
+
+    // The server must still be alive for the next request — this is the
+    // regression an uncaught decodeURIComponent throw would cause.
+    const followUp = await fetch(`http://localhost:${port}/api/codex/item/Desc_IronPlate_C`);
+    expect(followUp.status).toBe(200);
+  });
+});
+
+describe("codex popover icon", () => {
+  let iconDir: string;
+
+  afterEach(async () => {
+    if (iconDir) await rm(iconDir, { recursive: true, force: true });
+  });
+
+  it("streams the icon file resolveIconPath points at", async () => {
+    iconDir = await mkdtemp(path.join(tmpdir(), "scc-icons-"));
+    const iconPath = path.join(iconDir, "Desc_IronPlate_C.png");
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    await writeFile(iconPath, pngBytes);
+
+    const port = await listen({ resolveIconPath: () => iconPath });
+
+    const res = await fetch(`http://localhost:${port}/api/codex/icon/Desc_IronPlate_C`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("image/png");
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(pngBytes);
+  });
+
+  it("404s when no icons directory is configured", async () => {
+    const port = await listen({ resolveIconPath: () => null });
+
+    const res = await fetch(`http://localhost:${port}/api/codex/icon/Desc_IronPlate_C`);
+    expect(res.status).toBe(404);
+  });
+
+  it("404s when the resolved path doesn't actually exist on disk", async () => {
+    const port = await listen({ resolveIconPath: () => "/nowhere/Desc_IronPlate_C.png" });
+
+    const res = await fetch(`http://localhost:${port}/api/codex/icon/Desc_IronPlate_C`);
+    expect(res.status).toBe(404);
+  });
+
+  it("400s on malformed percent-encoding rather than crashing the server", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/codex/icon/Desc%`);
+    expect(res.status).toBe(400);
+
+    const followUp = await fetch(`http://localhost:${port}/api/codex/icon/Desc_IronPlate_C`);
+    expect(followUp.status).not.toBe(0);
   });
 });
