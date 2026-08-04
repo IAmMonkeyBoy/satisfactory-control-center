@@ -125,6 +125,43 @@ export type StorageItem = z.infer<typeof storageItemSchema>;
 export const storageStateSchema = z.object({ items: z.array(storageItemSchema) });
 export type StorageState = z.infer<typeof storageStateSchema>;
 
+/** A point in the game's world space, shared by anything the storage/inventory
+ *  panel can locate — a container, a death crate. */
+export const worldLocationSchema = z.object({ x: z.number(), y: z.number(), z: z.number() });
+export type WorldLocation = z.infer<typeof worldLocationSchema>;
+
+/**
+ * A death crate: the items dropped where a player died, with contents and
+ * location. Baseline-only always (spec, "Followed session and merge rules":
+ * death-crate contents are a domain FRM doesn't expose in this build) — there
+ * is no live variant to prefer, unlike every other domain here.
+ */
+export const deathCrateSchema = z.object({
+  id: z.string(),
+  location: worldLocationSchema,
+  items: z.array(storageItemSchema),
+});
+export type DeathCrate = z.infer<typeof deathCrateSchema>;
+
+export const deathCratesStateSchema = z.object({ crates: z.array(deathCrateSchema) });
+export type DeathCratesState = z.infer<typeof deathCratesStateSchema>;
+
+/**
+ * AWESOME Sink domain — accumulated points and printed coupons. A save
+ * records total points and coupons on hand, but not the point curve needed to
+ * say how far into the next coupon that total sits, so
+ * `pointsToNextCoupon`/`percentToNextCoupon` stay null until the live feed
+ * (which computes them) fills them in — the same live-only-field pattern as
+ * the power and machines domains.
+ */
+export const sinkStateSchema = z.object({
+  totalPoints: z.number(),
+  numCoupons: z.number(),
+  pointsToNextCoupon: z.number().nullable(),
+  percentToNextCoupon: z.number().nullable(),
+});
+export type SinkState = z.infer<typeof sinkStateSchema>;
+
 /** Milestones domain — current HUB milestone summary. */
 export const milestonesStateSchema = z.object({
   currentMilestone: z.string().nullable(),
@@ -163,6 +200,12 @@ export const worldStateSchema = z.object({
   production: domainSchema(productionStateSchema),
   machines: domainSchema(machinesStateSchema),
   storage: domainSchema(storageStateSchema),
+  /** The dimensional depot's inventory — same shape as `storage`, kept as its
+   *  own domain (rather than folded into `storage.items`) so the panel can
+   *  show it as the distinct, spendable pool it is in-game. */
+  depot: domainSchema(storageStateSchema),
+  deathCrates: domainSchema(deathCratesStateSchema),
+  sink: domainSchema(sinkStateSchema),
   milestones: domainSchema(milestonesStateSchema),
 });
 export type WorldState = z.infer<typeof worldStateSchema>;

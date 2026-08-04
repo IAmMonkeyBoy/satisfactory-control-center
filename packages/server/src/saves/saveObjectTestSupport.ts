@@ -59,12 +59,63 @@ export function powerStorage(instance: string, storedMWh: number): SaveObjectVie
 }
 
 /** A storage container pointing at the inventory component that holds its items. */
-export function storageContainer(instance: string, inventoryInstance: string): SaveObjectView {
+export function storageContainer(
+  instance: string,
+  inventoryInstance: string,
+  location?: { x: number; y: number; z: number },
+): SaveObjectView {
   return {
     typePath:
       "/Game/FactoryGame/Buildable/Factory/StorageContainerMk1/Build_StorageContainerMk1.Build_StorageContainerMk1_C",
     instanceName: `${LEVEL}.${instance}`,
     properties: { mStorageInventory: objectProperty(`${LEVEL}.${inventoryInstance}`) },
+    transform: location ? { translation: location } : undefined,
+  };
+}
+
+/**
+ * A crate — the same actor class the game uses for both dismantle piles and
+ * death crates, distinguished only by `mCrateType`. The inventory reference
+ * (`inventoryInstance`) travels via `components`, not a `properties` field:
+ * unlike a building's `mStorageInventory`, `AFGCrate.mInventory` carries no
+ * `SaveGame` flag, so the save's own component list is the only way to find
+ * it (mirrors how the real save format attaches it).
+ */
+export function crate(
+  instance: string,
+  type: "Death" | "Dismantle",
+  location: { x: number; y: number; z: number },
+  inventoryInstance?: string,
+): SaveObjectView {
+  return {
+    typePath: "/Game/FactoryGame/-Shared/Crate/BP_Crate.BP_Crate_C",
+    instanceName: `${LEVEL}.${instance}`,
+    properties: {
+      mCrateType: {
+        type: "EnumProperty",
+        value: {
+          name: "EFGCrateType",
+          value: type === "Death" ? "CT_DeathCrate" : "CT_DismantleCrate",
+        },
+      },
+    },
+    transform: { translation: location },
+    components: inventoryInstance ? [{ pathName: `${LEVEL}.${inventoryInstance}` }] : [],
+  };
+}
+
+/** The AWESOME Sink subsystem, holding accrued points and printed coupons.
+ *  `mTotalPoints` is a `TArray<int64>` indexed by track (0 = the default
+ *  resource sink, the only one v1 surfaces); the parser reads Int64Property
+ *  array elements as raw numeric strings, not `{ type, value }` objects. */
+export function resourceSink(totalPoints: number, numCoupons: number): SaveObjectView {
+  return {
+    typePath: "/Script/FactoryGame.FGResourceSinkSubsystem",
+    instanceName: `${LEVEL}.ResourceSinkSubsystem`,
+    properties: {
+      mTotalPoints: { type: "ArrayProperty", values: [String(totalPoints)] },
+      mNumResourceSinkCoupons: { type: "IntProperty", value: numCoupons },
+    },
   };
 }
 

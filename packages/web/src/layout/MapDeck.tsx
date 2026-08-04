@@ -7,6 +7,7 @@ import { FollowingIndicator } from "../panels/FollowingIndicator";
 import { PlaceholderPanel } from "../panels/PlaceholderPanel";
 import { PowerPanel } from "../panels/PowerPanel";
 import { ProductionPanel } from "../panels/ProductionPanel";
+import { StoragePanel } from "../panels/StoragePanel";
 import type { ConnectionStatus } from "../useWorldState";
 import { MapSlot } from "./MapSlot";
 
@@ -42,13 +43,8 @@ export function MapDeck({
           <div className="flex-1" />
 
           <div className="flex w-72 flex-none flex-col gap-3 overflow-y-auto">
-            <PlaceholderPanel
-              title="Milestone + Storage"
-              note={[
-                { label: "Milestone", note: "Milestones summary arrives in Build 7." },
-                { label: "Storage", note: "Storage & inventory search arrives in Build 6." },
-              ]}
-            />
+            <PlaceholderPanel title="Milestone" note="Milestones summary arrives in Build 7." />
+            {worldState && <StoragePanel worldState={worldState} now={now} />}
           </div>
         </div>
 

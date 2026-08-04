@@ -23,13 +23,18 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const staticDir = path.resolve(here, "../../web/dist");
 
 const store = createWorldStateStore();
-const server = createServer({ staticDir, buildWorldState: (now) => store.snapshot(now) });
+const server = createServer({
+  staticDir,
+  buildWorldState: (now) => store.snapshot(now),
+  searchStorage: (query) => store.searchStorage(query),
+});
 
 server.listen(PORT, () => {
   console.log(`Control center server listening on http://localhost:${PORT}`);
   console.log(`  Dashboard:     http://localhost:${PORT}/`);
   console.log(`  SSE stream:    http://localhost:${PORT}/api/stream`);
   console.log(`  REST snapshot: http://localhost:${PORT}/api/worldstate`);
+  console.log(`  Storage search: http://localhost:${PORT}/api/storage/search?item=`);
 });
 
 // Set once the save watcher starts, below — read by `logLiveEvent` so a live

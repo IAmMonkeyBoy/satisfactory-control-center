@@ -1,5 +1,5 @@
 import type { Server } from "node:http";
-import type { WorldState } from "@scc/shared";
+import type { StorageSearchResponse, WorldState } from "@scc/shared";
 
 /**
  * A populated WorldState for the transport tests. They are about the SSE and REST
@@ -67,10 +67,56 @@ export function sampleWorldState(now: number): WorldState {
         items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 4820 }],
       },
     },
+    depot: {
+      tag: { source: "live", capturedAt: now },
+      data: {
+        items: [{ className: "Desc_CopperSheet_C", displayName: "Copper Sheet", count: 200 }],
+      },
+    },
+    deathCrates: {
+      tag: { source: "baseline", capturedAt: now - 4 * 60 * 1000 },
+      data: {
+        crates: [
+          {
+            id: "BP_Crate_C_1",
+            location: { x: 100, y: 200, z: 5 },
+            items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 3 }],
+          },
+        ],
+      },
+    },
+    sink: {
+      tag: { source: "live", capturedAt: now },
+      data: {
+        totalPoints: 3_334_555_366,
+        numCoupons: 13,
+        pointsToNextCoupon: 14_902_634,
+        percentToNextCoupon: 15.7,
+      },
+    },
     milestones: {
       tag: { source: "baseline", capturedAt: now - 4 * 60 * 1000 },
       data: { currentMilestone: "Coal Power", spaceElevatorPhase: "Phase 2" },
     },
+  };
+}
+
+/** A canned item-location search result for the `/api/storage/search` REST
+ *  contract test — the route itself is exercised, not any real search logic. */
+export function sampleStorageSearchResponse(query: string): StorageSearchResponse {
+  return {
+    query,
+    tag: { source: "baseline", capturedAt: 1000 },
+    matches: [
+      {
+        containerId: "Build_StorageContainerMk1_C_1",
+        containerDisplayName: "Storage Container",
+        location: { x: 100, y: 200, z: 5 },
+        itemClassName: "Desc_IronPlate_C",
+        itemDisplayName: "Iron Plate",
+        count: 500,
+      },
+    ],
   };
 }
 

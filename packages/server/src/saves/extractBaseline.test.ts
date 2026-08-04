@@ -4,10 +4,12 @@ import { extractBaseline, type SaveObjectView } from "./extractBaseline.ts";
 import {
   centralStorage,
   circuit,
+  crate,
   gamePhaseManager,
   inventory,
   machine,
   powerStorage,
+  resourceSink,
   schematicManager,
   storageContainer,
   worldObject,
@@ -120,6 +122,138 @@ describe("storage baseline", () => {
     expect(baseline.storage.items).toEqual([
       { className: "Desc_ModdedThing_C", displayName: "Desc_ModdedThing_C", count: 3 },
     ]);
+  });
+});
+
+describe("containers (search index)", () => {
+  it("captures a container's id, location, and per-item contents", () => {
+    const baseline = baselineOf([
+      storageContainer("Build_StorageContainerMk1_C_1", "inv-1", { x: 100, y: 200, z: 5 }),
+      inventory("inv-1", [{ className: "Desc_IronPlate_C", count: 42 }]),
+    ]);
+
+    expect(baseline.containers).toEqual([
+      {
+        id: `${"Persistent_Level:PersistentLevel"}.Build_StorageContainerMk1_C_1`,
+        displayName: "Storage Container",
+        location: { x: 100, y: 200, z: 5 },
+        items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 42 }],
+      },
+    ]);
+  });
+
+  it("keeps containers separate rather than aggregating across them", () => {
+    const baseline = baselineOf([
+      storageContainer("Build_StorageContainerMk1_C_1", "inv-1", { x: 0, y: 0, z: 0 }),
+      inventory("inv-1", [{ className: "Desc_IronPlate_C", count: 500 }]),
+      storageContainer("Build_StorageContainerMk1_C_2", "inv-2", { x: 10, y: 0, z: 0 }),
+      inventory("inv-2", [{ className: "Desc_IronPlate_C", count: 120 }]),
+    ]);
+
+    expect(baseline.containers).toHaveLength(2);
+    expect(baseline.containers.map((c) => c.items[0]?.count)).toEqual([500, 120]);
+  });
+
+  it("omits a container with no transform, since search results need a location", () => {
+    const baseline = baselineOf([
+      { ...storageContainer("Build_StorageContainerMk1_C_1", "inv-1"), transform: undefined },
+      inventory("inv-1", [{ className: "Desc_IronPlate_C", count: 42 }]),
+    ]);
+
+    expect(baseline.containers).toEqual([]);
+  });
+
+  it("omits an empty container", () => {
+    const baseline = baselineOf([
+      storageContainer("Build_StorageContainerMk1_C_1", "inv-1", { x: 0, y: 0, z: 0 }),
+      inventory("inv-1", []),
+    ]);
+
+    expect(baseline.containers).toEqual([]);
+  });
+
+  it("excludes the dimensional depot from search results — it has no world location", () => {
+    const baseline = baselineOf([centralStorage([{ className: "Desc_Cement_C", count: 2000 }])]);
+
+    expect(baseline.containers).toEqual([]);
+  });
+});
+
+describe("depot baseline", () => {
+  it("reports the dimensional depot's contents on its own domain", () => {
+    const baseline = baselineOf([centralStorage([{ className: "Desc_Cement_C", count: 2000 }])]);
+
+    expect(baseline.depot.items).toEqual([
+      { className: "Desc_Cement_C", displayName: "Concrete", count: 2000 },
+    ]);
+  });
+
+  it("reports an empty depot when the save has none", () => {
+    expect(baselineOf([]).depot.items).toEqual([]);
+  });
+});
+
+describe("death crates baseline", () => {
+  it("includes a death crate's location and contents", () => {
+    const baseline = baselineOf([
+      crate("Crate_1", "Death", { x: 50, y: 60, z: 70 }, "crate-inv-1"),
+      inventory("crate-inv-1", [{ className: "Desc_IronPlate_C", count: 3 }]),
+    ]);
+
+    expect(baseline.deathCrates.crates).toEqual([
+      {
+        id: `${"Persistent_Level:PersistentLevel"}.Crate_1`,
+        location: { x: 50, y: 60, z: 70 },
+        items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 3 }],
+      },
+    ]);
+  });
+
+  it("excludes a dismantle crate — only death crates belong here", () => {
+    const baseline = baselineOf([
+      crate("Crate_1", "Dismantle", { x: 0, y: 0, z: 0 }, "crate-inv-1"),
+      inventory("crate-inv-1", [{ className: "Desc_IronPlate_C", count: 3 }]),
+    ]);
+
+    expect(baseline.deathCrates.crates).toEqual([]);
+  });
+
+  it("reports an empty item list for a death crate whose inventory can't be found", () => {
+    const baseline = baselineOf([crate("Crate_1", "Death", { x: 0, y: 0, z: 0 })]);
+
+    expect(baseline.deathCrates.crates).toEqual([
+      {
+        id: `${"Persistent_Level:PersistentLevel"}.Crate_1`,
+        location: { x: 0, y: 0, z: 0 },
+        items: [],
+      },
+    ]);
+  });
+
+  it("reports no crates for a save with none", () => {
+    expect(baselineOf([]).deathCrates.crates).toEqual([]);
+  });
+});
+
+describe("sink baseline", () => {
+  it("reads accrued points and coupons off the resource sink subsystem", () => {
+    const baseline = baselineOf([resourceSink(3_334_555_366, 13)]);
+
+    expect(baseline.sink).toEqual({
+      totalPoints: 3_334_555_366,
+      numCoupons: 13,
+      pointsToNextCoupon: null,
+      percentToNextCoupon: null,
+    });
+  });
+
+  it("reports zero rather than unknown when the save has no sink subsystem yet", () => {
+    expect(baselineOf([]).sink).toEqual({
+      totalPoints: 0,
+      numCoupons: 0,
+      pointsToNextCoupon: null,
+      percentToNextCoupon: null,
+    });
   });
 });
 
@@ -238,5 +372,8 @@ describe("a save with nothing recognisable in it", () => {
     expect(baseline.storage.items).toEqual([]);
     expect(baseline.production.items).toEqual([]);
     expect(baseline.machines.machines).toEqual([]);
+    expect(baseline.containers).toEqual([]);
+    expect(baseline.depot.items).toEqual([]);
+    expect(baseline.deathCrates.crates).toEqual([]);
   });
 });

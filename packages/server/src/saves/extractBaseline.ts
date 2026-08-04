@@ -14,11 +14,15 @@
  * the main thread — never the parsed save itself.
  */
 import type {
+  DeathCratesState,
   MachinesState,
   MilestonesState,
   PowerState,
   ProductionState,
+  SinkState,
+  StorageItem,
   StorageState,
+  WorldLocation,
 } from "@scc/shared";
 import { classNameFromPath, type StaticData } from "../staticData/staticData.ts";
 
@@ -31,6 +35,24 @@ export interface SaveObjectView {
   typePath: string;
   instanceName: string;
   properties: Record<string, unknown>;
+  /** World placement, present on save *entities* (placed actors) but not on
+   *  save *components* — undefined for those, and treated defensively as "no
+   *  location" rather than thrown on. */
+  transform?: { translation?: { x: number; y: number; z: number } };
+  /** Attached components. Used to find a crate's inventory, which — unlike a
+   *  building's `mStorageInventory` — isn't a `SaveGame`-flagged property, so
+   *  it doesn't show up in `properties` the way a container's does. */
+  components?: { pathName?: string }[];
+}
+
+/** One container's full contents and location — the search index behind the
+ *  item-location search REST endpoint (spec: "full container inventories"),
+ *  never pushed as part of WorldState (ADR 0003: request/response, not SSE). */
+export interface ContainerInventory {
+  id: string;
+  displayName: string;
+  location: WorldLocation;
+  items: StorageItem[];
 }
 
 /** The WorldState domains a save can speak to. */
@@ -39,11 +61,19 @@ export interface BaselineDomains {
   production: ProductionState;
   machines: MachinesState;
   storage: StorageState;
+  depot: StorageState;
+  deathCrates: DeathCratesState;
+  sink: SinkState;
   milestones: MilestonesState;
+  containers: ContainerInventory[];
 }
 
 /** Rated capacity of a power storage bank when the dump doesn't say otherwise. */
 const DEFAULT_POWER_STORE_CAPACITY_MWH = 100;
+
+/** `EResourceSinkTrack::RST_Default` — the main AWESOME Sink track, index 0 of
+ *  `mTotalPoints`. `RST_Exploration` (index 1) has no v1 domain. */
+const RESOURCE_SINK_DEFAULT_TRACK_INDEX = 0;
 
 /** The domains of a WorldState that knows nothing yet. */
 export function emptyBaselineDomains(): BaselineDomains {
@@ -52,7 +82,11 @@ export function emptyBaselineDomains(): BaselineDomains {
     production: { items: [] },
     machines: { machines: [] },
     storage: { items: [] },
+    depot: { items: [] },
+    deathCrates: { crates: [] },
+    sink: { totalPoints: 0, numCoupons: 0, pointsToNextCoupon: null, percentToNextCoupon: null },
     milestones: { currentMilestone: null, spaceElevatorPhase: null },
+    containers: [],
   };
 }
 
@@ -66,7 +100,11 @@ export function extractBaseline(
     production: extractProduction(index, staticData),
     machines: extractMachines(index, staticData),
     storage: extractStorage(index, staticData),
+    depot: extractDepot(index, staticData),
+    deathCrates: extractDeathCrates(index, staticData),
+    sink: extractSink(index),
     milestones: extractMilestones(index, staticData),
+    containers: extractContainers(index, staticData),
   };
 }
 
@@ -239,6 +277,110 @@ function extractStorage(index: SaveIndex, staticData: StaticData): StorageState 
   return { items };
 }
 
+/**
+ * Per-container detail for the item-location search index: unlike
+ * {@link extractStorage}'s flat totals, every building keeps its own entry —
+ * search needs to say *which* container holds an item, not just how many
+ * exist in total. The dimensional depot is deliberately excluded: it has no
+ * world location, and is shown as its own panel section instead (see
+ * {@link extractDepot}), not as a search result.
+ */
+function extractContainers(index: SaveIndex, staticData: StaticData): ContainerInventory[] {
+  const containers: ContainerInventory[] = [];
+
+  for (const object of index.all) {
+    const inventoryPath = objectPath(object.properties.mStorageInventory);
+    if (!inventoryPath) continue;
+
+    const location = objectLocation(object);
+    if (!location) continue;
+
+    const inventory = index.instance(inventoryPath);
+    const items = inventory ? stacksToItems(inventory, staticData) : [];
+    if (items.length === 0) continue;
+
+    const className = classNameFromPath(object.typePath);
+    containers.push({
+      id: object.instanceName,
+      displayName: staticData.building(className)?.displayName ?? className,
+      location,
+      items,
+    });
+  }
+
+  containers.sort((a, b) => a.displayName.localeCompare(b.displayName) || a.id.localeCompare(b.id));
+  return containers;
+}
+
+/** The dimensional depot's contents, as its own domain (distinct from
+ *  {@link extractStorage}'s per-container totals) so the panel can show it as
+ *  the single spendable pool it is in-game. */
+function extractDepot(index: SaveIndex, staticData: StaticData): StorageState {
+  const depot = index.singleton("FGCentralStorageSubsystem");
+  if (!depot) return { items: [] };
+
+  const counts = new Map<string, number>();
+  for (const entry of arrayValues(depot, "mStoredItems")) {
+    const itemPath = objectPath(propertiesOf(entry)?.ItemClass);
+    const count = structNumber(entry, "amount");
+    if (itemPath === undefined || count === undefined || count <= 0) continue;
+    addCount(counts, classNameFromPath(itemPath), count);
+  }
+
+  const items = [...counts].map(([className, count]) => ({
+    className,
+    displayName: staticData.displayName(className) ?? className,
+    count,
+  }));
+  items.sort((a, b) => b.count - a.count || a.className.localeCompare(b.className));
+  return { items };
+}
+
+/**
+ * Death crates — always baseline (spec, "Followed session and merge rules":
+ * death-crate contents are a domain FRM doesn't expose in this build), so
+ * there is no live counterpart to this extraction the way there is for power
+ * or storage. Dismantle crates (the same `BP_Crate_C` class, spawned when a
+ * player's inventory overflows a dismantle) are deliberately excluded — only
+ * `CT_DeathCrate` counts as a death crate.
+ */
+function extractDeathCrates(index: SaveIndex, staticData: StaticData): DeathCratesState {
+  const crates = index.ofClass("BP_Crate_C").flatMap((crateObject) => {
+    const crateType = enumProperty(crateObject, "mCrateType");
+    if (!crateType?.includes("DeathCrate")) return [];
+
+    const location = objectLocation(crateObject);
+    if (!location) return [];
+
+    const inventory = crateInventory(crateObject, index);
+    const items = inventory ? stacksToItems(inventory, staticData) : [];
+    return [{ id: crateObject.instanceName, location, items }];
+  });
+
+  crates.sort((a, b) => a.id.localeCompare(b.id));
+  return { crates };
+}
+
+/**
+ * AWESOME Sink points and coupons. `pointsToNextCoupon`/`percentToNextCoupon`
+ * need the game's internal point-level curve to derive, which a save does not
+ * record, so they stay null for the live feed to fill in — the sink domain's
+ * own version of the live-only-field pattern the power and machines domains
+ * already follow.
+ */
+function extractSink(index: SaveIndex): SinkState {
+  const subsystem = index.singleton("FGResourceSinkSubsystem");
+  if (!subsystem) {
+    return { totalPoints: 0, numCoupons: 0, pointsToNextCoupon: null, percentToNextCoupon: null };
+  }
+
+  const totalPoints =
+    numericAt(arrayValues(subsystem, "mTotalPoints"), RESOURCE_SINK_DEFAULT_TRACK_INDEX) ?? 0;
+  const numCoupons = numberProperty(subsystem, "mNumResourceSinkCoupons") ?? 0;
+
+  return { totalPoints, numCoupons, pointsToNextCoupon: null, percentToNextCoupon: null };
+}
+
 function extractMilestones(index: SaveIndex, staticData: StaticData): MilestonesState {
   const schematicManager = index.singleton("BP_SchematicManager_C");
   const lastSchematic = objectPath(schematicManager?.properties.mLastActiveSchematic);
@@ -282,6 +424,29 @@ function ratedStorageCapacity(staticData: StaticData, typePath: string): number 
 
 function addCount(counts: Map<string, number>, className: string, count: number): void {
   counts.set(className, (counts.get(className) ?? 0) + count);
+}
+
+/** An inventory component's stacks, aggregated by item class and sorted the
+ *  same way every other item list in this module is (count descending,
+ *  className breaking ties). Shared by {@link extractContainers} and
+ *  {@link extractDeathCrates}, which each read one inventory at a time rather
+ *  than {@link extractStorage}'s cross-container totals. */
+function stacksToItems(inventoryObject: SaveObjectView, staticData: StaticData): StorageItem[] {
+  const counts = new Map<string, number>();
+  for (const stack of arrayValues(inventoryObject, "mInventoryStacks")) {
+    const itemPath = structField(stack, "Item")?.itemReference?.pathName;
+    const count = structNumber(stack, "NumItems");
+    if (itemPath === undefined || count === undefined || count <= 0) continue;
+    addCount(counts, classNameFromPath(itemPath), count);
+  }
+
+  const items = [...counts].map(([className, count]) => ({
+    className,
+    displayName: staticData.displayName(className) ?? className,
+    count,
+  }));
+  items.sort((a, b) => b.count - a.count || a.className.localeCompare(b.className));
+  return items;
 }
 
 function round(value: number): number {
@@ -336,4 +501,56 @@ function structField(
 function structNumber(struct: unknown, name: string): number | undefined {
   const value = asRecord(propertiesOf(struct)?.[name])?.value;
   return typeof value === "number" ? value : undefined;
+}
+
+/** An EnumProperty's raw value (`"CT_DeathCrate"`, possibly qualified as
+ *  `"EFGCrateType::CT_DeathCrate"` depending on save version) — callers match
+ *  on it with `.includes()` rather than equality so a qualifying prefix
+ *  doesn't produce a false miss. */
+function enumProperty(object: SaveObjectView, name: string): string | undefined {
+  const value = asRecord(object.properties[name])?.value;
+  const enumValue = asRecord(value)?.value;
+  return typeof enumValue === "string" ? enumValue : undefined;
+}
+
+/** An entity's world location, or undefined for a component (which has none)
+ *  or an entity the parser couldn't resolve a transform for. */
+function objectLocation(object: SaveObjectView): WorldLocation | undefined {
+  const translation = object.transform?.translation;
+  if (!translation || typeof translation.x !== "number") return undefined;
+  return { x: translation.x, y: translation.y, z: translation.z };
+}
+
+/**
+ * A crate's inventory component. Unlike a building's `mStorageInventory`,
+ * `AFGCrate.mInventory` carries no `SaveGame` flag, so it doesn't appear as a
+ * `properties` reference the way a container's does — the save's own
+ * component list is what actually attaches it. `properties.mInventory` is
+ * still tried first, defensively, in case a future save version adds the
+ * flag.
+ */
+function crateInventory(crateObject: SaveObjectView, index: SaveIndex): SaveObjectView | undefined {
+  const direct = objectPath(crateObject.properties.mInventory);
+  const viaProperty = direct ? index.instance(direct) : undefined;
+  if (viaProperty) return viaProperty;
+
+  for (const component of crateObject.components ?? []) {
+    if (typeof component.pathName !== "string" || component.pathName === "") continue;
+    const candidate = index.instance(component.pathName);
+    if (candidate && asRecord(candidate.properties.mInventoryStacks)) return candidate;
+  }
+  return undefined;
+}
+
+/** The numeric value at `index` of a raw values array, tolerating Int64
+ *  array elements (parsed as strings, not `{ type, value }` objects — see
+ *  `resourceSink`'s doc comment in `saveObjectTestSupport.ts`). */
+function numericAt(values: unknown[], index: number): number | undefined {
+  const raw = values[index];
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string" && raw !== "") {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
