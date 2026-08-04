@@ -388,6 +388,13 @@ export function createWorldStateStore(): WorldStateStore {
           tag: combineMoverTags([players.tag, vehicles.tag, trains.tag, drones.tag]),
           data: [...players.data, ...vehicles.data, ...trains.data, ...drones.data],
         },
+        // Always baseline, same as WorldState's own deathCrates domain — FRM
+        // doesn't expose crate contents live, so there's no live entry to
+        // resolve against.
+        deathCrates: {
+          tag: { source: "baseline", capturedAt: baseline.capturedAt },
+          data: baseline.domains.mapDeathCrates,
+        },
       };
     },
   };

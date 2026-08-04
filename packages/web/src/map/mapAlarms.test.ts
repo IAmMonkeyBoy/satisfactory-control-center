@@ -15,17 +15,36 @@ function building(overrides: Partial<MapBuilding> = {}): MapBuilding {
 }
 
 describe("mapAlarms", () => {
-  it("raises a critical alarm, located at the building, for a no-power building", () => {
+  it("raises a critical, banner-hidden badge alarm located at the building, for a no-power building", () => {
     const alarms = mapAlarms([building({ id: "b1", displayName: "Smelter", status: "no-power" })]);
 
-    expect(alarms).toEqual([
-      {
-        key: "map-no-power-b1",
-        severity: "critical",
-        message: "No power — Smelter",
-        location: { x: 100, y: 200, z: 5, rotationDegrees: 0 },
-      },
+    expect(alarms).toContainEqual({
+      key: "map-no-power-b1",
+      severity: "critical",
+      message: "No power — Smelter",
+      location: { x: 100, y: 200, z: 5, rotationDegrees: 0 },
+      hideFromBanner: true,
+    });
+  });
+
+  it("also raises one unlocated, banner-visible summary alarm", () => {
+    const alarms = mapAlarms([building({ id: "b1", displayName: "Smelter", status: "no-power" })]);
+
+    expect(alarms).toContainEqual({
+      key: "map-no-power-summary",
+      severity: "critical",
+      message: "1 building without power",
+    });
+  });
+
+  it("pluralizes the summary for more than one affected building", () => {
+    const alarms = mapAlarms([
+      building({ id: "b1", status: "no-power" }),
+      building({ id: "b2", status: "no-power" }),
     ]);
+
+    const summary = alarms.find((a) => a.key === "map-no-power-summary");
+    expect(summary?.message).toBe("2 buildings without power");
   });
 
   it("raises nothing for a running or idle building", () => {
@@ -36,11 +55,16 @@ describe("mapAlarms", () => {
     expect(mapAlarms([building({ status: null })])).toEqual([]);
   });
 
-  it("raises one alarm per no-power building", () => {
+  it("raises one badge alarm per no-power building, plus exactly one summary", () => {
     const alarms = mapAlarms([
       building({ id: "b1", status: "no-power" }),
       building({ id: "b2", status: "no-power" }),
     ]);
-    expect(alarms.map((a) => a.key)).toEqual(["map-no-power-b1", "map-no-power-b2"]);
+
+    expect(alarms.map((a) => a.key)).toEqual([
+      "map-no-power-b1",
+      "map-no-power-b2",
+      "map-no-power-summary",
+    ]);
   });
 });

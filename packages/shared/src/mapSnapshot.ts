@@ -94,15 +94,33 @@ export const mapMoverSchema = z.object({
 export type MapMover = z.infer<typeof mapMoverSchema>;
 
 /**
- * The Tier 1 map's REST payload. Buildings and movers each carry their own
- * source/age tag (mirroring every WorldState domain) rather than one for the
- * whole snapshot: buildings can be baseline while movers are still empty
- * awaiting the first live push, the same independence WorldState's own
- * per-domain tags exist to make honest.
+ * A death crate on the map. Baseline-only, mirroring the WorldState
+ * `deathCrates` domain (spec, "Followed session and merge rules": death-crate
+ * contents are a domain FRM doesn't expose in this build — there's no live
+ * counterpart to prefer). Carries its own `class + transform + footprint`
+ * rather than reusing `WorldState.deathCrates`' bare `{id, location, items}`
+ * shape, so the map's Tier-2-readiness claim actually covers every layer,
+ * not just buildings and movers.
+ */
+export const mapDeathCrateSchema = z.object({
+  id: z.string(),
+  className: z.string(),
+  transform: mapTransformSchema,
+  footprint: mapFootprintSchema,
+});
+export type MapDeathCrate = z.infer<typeof mapDeathCrateSchema>;
+
+/**
+ * The Tier 1 map's REST payload. Every layer carries its own source/age tag
+ * (mirroring every WorldState domain) rather than one for the whole
+ * snapshot: buildings can be baseline while movers are still empty awaiting
+ * the first live push, the same independence WorldState's own per-domain
+ * tags exist to make honest.
  */
 export const mapSnapshotSchema = z.object({
   generatedAt: z.number(),
   buildings: domainSchema(z.array(mapBuildingSchema)),
   movers: domainSchema(z.array(mapMoverSchema)),
+  deathCrates: domainSchema(z.array(mapDeathCrateSchema)),
 });
 export type MapSnapshot = z.infer<typeof mapSnapshotSchema>;

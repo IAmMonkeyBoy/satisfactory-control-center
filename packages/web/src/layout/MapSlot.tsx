@@ -1,5 +1,4 @@
 import { useMemo, type JSX } from "react";
-import type { WorldState } from "@scc/shared";
 import { useAlarmContext } from "../alarms/AlarmContext";
 import { usePanelAlarms } from "../alarms/usePanelAlarms";
 import { mapAlarms } from "../map/mapAlarms";
@@ -10,19 +9,14 @@ import { useMapSnapshot } from "../map/useMapSnapshot";
  * The full-bleed map slot (spec, "Map Deck layout") — the Tier 1 map itself
  * (ADR 0004: orthographic Three.js scene). Owns the map's own data feed (its
  * REST poll, per ADR 0003 — distinct from the SSE-pushed WorldState the rest
- * of the dashboard reads); layer-toggle *state* lives in `MapDeck.tsx`
- * instead, since the toggle control itself renders in the overlay's normal
- * flex flow (so a wide alarm banner pushes it down rather than sitting
- * under it) — this component just needs the current visibility to pass to
- * the scene.
+ * of the dashboard reads, and the source for every one of its four layers,
+ * death crates included — see `mapSnapshot.ts`'s `MapDeathCrate`); layer-
+ * toggle *state* lives in `MapDeck.tsx` instead, since the toggle control
+ * itself renders in the overlay's normal flex flow (so a wide alarm banner
+ * pushes it down rather than sitting under it) — this component just needs
+ * the current visibility to pass to the scene.
  */
-export function MapSlot({
-  worldState,
-  layers,
-}: {
-  worldState: WorldState | null;
-  layers: MapLayerVisibility;
-}): JSX.Element {
+export function MapSlot({ layers }: { layers: MapLayerVisibility }): JSX.Element {
   const mapSnapshot = useMapSnapshot();
   const { activeAlarms } = useAlarmContext();
 
@@ -35,12 +29,7 @@ export function MapSlot({
 
   return (
     <div className="absolute inset-0 bg-metal-950">
-      <MapScene
-        mapSnapshot={mapSnapshot}
-        deathCrates={worldState?.deathCrates.data.crates ?? []}
-        alarms={activeAlarms}
-        layers={layers}
-      />
+      <MapScene mapSnapshot={mapSnapshot} alarms={activeAlarms} layers={layers} />
     </div>
   );
 }

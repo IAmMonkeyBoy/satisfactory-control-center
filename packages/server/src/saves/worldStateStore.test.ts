@@ -527,6 +527,13 @@ const VEHICLE_MOVER = {
   footprint: { widthCm: 400, depthCm: 800 },
 };
 
+const MAP_DEATH_CRATE = {
+  id: "crate1",
+  className: "BP_Crate_C",
+  transform: { x: 0, y: 0, z: 0, rotationDegrees: 0 },
+  footprint: { widthCm: 200, depthCm: 200 },
+};
+
 describe("mapSnapshot", () => {
   it("starts empty: no baseline buildings, no movers, both baseline-tagged at 0", () => {
     const store = createWorldStateStore();
@@ -535,6 +542,25 @@ describe("mapSnapshot", () => {
     expect(map.generatedAt).toBe(5000);
     expect(map.buildings).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
     expect(map.movers).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
+    expect(map.deathCrates).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
+  });
+
+  it("reflects baseline death crates once a save is accepted, always baseline-tagged", () => {
+    const store = createWorldStateStore();
+    store.applyBaseline(
+      baseline({ mapDeathCrates: [MAP_DEATH_CRATE] }),
+      header({ saveDateTime: 2_000 }),
+    );
+    store.applyLiveDomains(
+      { mapPlayers: [PLAYER_MOVER] },
+      { sessionName: "Random Defaults", capturedAt: 9_000 },
+    );
+
+    const map = store.mapSnapshot(9_500);
+    expect(map.deathCrates).toEqual({
+      tag: { source: "baseline", capturedAt: 2_000 },
+      data: [MAP_DEATH_CRATE],
+    });
   });
 
   it("reflects baseline buildings once a save is accepted", () => {
@@ -625,9 +651,12 @@ describe("mapSnapshot", () => {
     expect(map.movers.data).toEqual([PLAYER_MOVER]);
   });
 
-  it("reset drops both buildings and movers together", () => {
+  it("reset drops buildings, movers, and death crates together", () => {
     const store = createWorldStateStore();
-    store.applyBaseline(baseline({ mapBuildings: [BUILDING] }), header({ saveDateTime: 1_000 }));
+    store.applyBaseline(
+      baseline({ mapBuildings: [BUILDING], mapDeathCrates: [MAP_DEATH_CRATE] }),
+      header({ saveDateTime: 1_000 }),
+    );
     store.applyLiveDomains(
       { mapPlayers: [PLAYER_MOVER] },
       { sessionName: "Random Defaults", capturedAt: 9_000 },
@@ -638,5 +667,6 @@ describe("mapSnapshot", () => {
     const map = store.mapSnapshot(9_500);
     expect(map.buildings).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
     expect(map.movers).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
+    expect(map.deathCrates).toEqual({ tag: { source: "baseline", capturedAt: 0 }, data: [] });
   });
 });

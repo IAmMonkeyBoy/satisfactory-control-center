@@ -354,11 +354,25 @@ const DEFAULT_VEHICLE_FOOTPRINT_CM = { widthCm: 400, depthCm: 800 };
 const DEFAULT_TRAIN_FOOTPRINT_CM = { widthCm: 400, depthCm: 2000 };
 const DEFAULT_DRONE_FOOTPRINT_CM = { widthCm: 300, depthCm: 300 };
 
+/** Whether a building's `PowerInfo` reports it as unpowered: either its
+ *  circuit's fuse has tripped, or the building isn't wired to a circuit at
+ *  all. FRM documents `CircuitID`/`CircuitGroupID` of `-1` as "not
+ *  connected" — a building placed but never wired to a power line reports
+ *  `FuseTriggered: false` (there's no circuit for a fuse to trip on), so
+ *  `FuseTriggered` alone misses this case entirely and would misclassify a
+ *  disconnected building as merely `idle`. */
+function isUnpowered(powerInfo: Record<string, unknown> | undefined): boolean {
+  if (booleanField(powerInfo, "FuseTriggered") ?? false) return true;
+  const circuitId = numberField(powerInfo, "CircuitID");
+  const circuitGroupId = numberField(powerInfo, "CircuitGroupID");
+  return circuitId === -1 || circuitGroupId === -1;
+}
+
 /**
  * `getFactory` -> the map's buildings layer (a second, per-instance mapping
  * of the same endpoint {@link mapMachines} aggregates). `status` is the one
  * thing this build's baseline extraction can never know: `no-power` when the
- * building's own circuit has tripped its fuse, `running` while actually
+ * building is unpowered (see {@link isUnpowered}), `running` while actually
  * producing, `idle` otherwise (paused, or configured but starved/stopped).
  * An unconfigured machine — no recipe set — is excluded, mirroring
  * `mapMachines`'s own exclusion and keeping the map's building population
@@ -373,7 +387,7 @@ export function mapFactoryBuildings(raw: unknown): MapBuilding[] {
     const location = locationField(record);
     if (!className || !location) return [];
 
-    const fuseTripped = booleanField(asRecord(record?.PowerInfo), "FuseTriggered") ?? false;
+    const unpowered = isUnpowered(asRecord(record?.PowerInfo));
     const producing = booleanField(record, "IsProducing") ?? false;
 
     return [
@@ -383,7 +397,7 @@ export function mapFactoryBuildings(raw: unknown): MapBuilding[] {
         displayName: stringField(record, "Name") ?? className,
         transform: location,
         footprint: footprintFromBoundingBox(record) ?? DEFAULT_BUILDING_FOOTPRINT_CM,
-        status: fuseTripped ? "no-power" : producing ? "running" : "idle",
+        status: unpowered ? "no-power" : producing ? "running" : "idle",
       },
     ];
   });

@@ -22,4 +22,13 @@ export interface Alarm {
    *  single point to badge; omitting it just means that alarm shows in the
    *  banner only, not on the map. */
   location?: WorldLocation;
+  /** Omit this alarm from the dashboard-wide `AlarmBanner` while still
+   *  counting it toward severity and (if it has a `location`) rendering it
+   *  as a map badge. For a fault that is naturally per-instance — one alarm
+   *  per building on a tripped circuit, say — registering one banner line
+   *  per instance would flood and displace the banner; the panel instead
+   *  registers the per-instance alarms with this set (so every affected
+   *  building still gets its own map badge) alongside one aggregate alarm
+   *  without it (so the banner shows a single "N affected" line). */
+  hideFromBanner?: boolean;
 }

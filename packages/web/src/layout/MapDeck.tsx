@@ -41,7 +41,7 @@ export function MapDeck({
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-metal-950 text-neutral-100">
-      <MapSlot worldState={worldState} layers={mapLayers} />
+      <MapSlot layers={mapLayers} />
 
       {/* pointer-events-none so the empty space in this overlay (the middle
           spacer between the panel columns, the gaps around the top bar) lets

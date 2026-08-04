@@ -17,6 +17,7 @@ import type {
   DeathCratesState,
   MachinesState,
   MapBuilding,
+  MapDeathCrate,
   MapFootprint,
   MilestonesState,
   PowerState,
@@ -75,6 +76,7 @@ export interface BaselineDomains {
   milestones: MilestonesState;
   containers: ContainerInventory[];
   mapBuildings: MapBuilding[];
+  mapDeathCrates: MapDeathCrate[];
 }
 
 /** Rated capacity of a power storage bank when the dump doesn't say otherwise. */
@@ -103,6 +105,7 @@ export function emptyBaselineDomains(): BaselineDomains {
     },
     containers: [],
     mapBuildings: [],
+    mapDeathCrates: [],
   };
 }
 
@@ -122,6 +125,7 @@ export function extractBaseline(
     milestones: extractMilestones(index, staticData),
     containers: extractContainers(index, staticData),
     mapBuildings: extractMapBuildings(index, staticData),
+    mapDeathCrates: extractMapDeathCrates(index),
   };
 }
 
@@ -422,6 +426,44 @@ function extractDeathCrates(index: SaveIndex, staticData: StaticData): DeathCrat
 
   crates.sort((a, b) => a.id.localeCompare(b.id));
   return { crates };
+}
+
+/** Stand-in footprint for a death crate — a save carries no bounding-box
+ *  data for one (the same gap {@link DEFAULT_BUILDING_FOOTPRINT_CM} fills
+ *  for buildings), and FRM's `getCrateInv` doesn't report one either. 2m
+ *  square approximates the crate model's actual size closely enough for a
+ *  Tier 1 icon. */
+const DEFAULT_DEATH_CRATE_FOOTPRINT_CM: MapFootprint = { widthCm: 200, depthCm: 200 };
+
+/**
+ * Death crates for the Tier 1 map — the same population {@link extractDeathCrates}
+ * finds, reshaped to `class + transform + footprint` (spec, "Tier 1 map")
+ * instead of `extractDeathCrates`' `{id, location, items}` (which the
+ * storage/inventory panel's death-crate list still reads directly — the two
+ * shapes serve different consumers, not a domain conflict). Always baseline,
+ * for the same reason `extractDeathCrates` is: FRM doesn't expose crate
+ * contents live, so there's nothing for a live push to update this against.
+ */
+function extractMapDeathCrates(index: SaveIndex): MapDeathCrate[] {
+  const crates = index.ofClass("BP_Crate_C").flatMap((crateObject): MapDeathCrate[] => {
+    const crateType = enumProperty(crateObject, "mCrateType");
+    if (!crateType?.includes("DeathCrate")) return [];
+
+    const location = objectLocation(crateObject);
+    if (!location) return [];
+
+    return [
+      {
+        id: crateObject.instanceName,
+        className: classNameFromPath(crateObject.typePath),
+        transform: { ...location, rotationDegrees: objectYawDegrees(crateObject) },
+        footprint: DEFAULT_DEATH_CRATE_FOOTPRINT_CM,
+      },
+    ];
+  });
+
+  crates.sort((a, b) => a.id.localeCompare(b.id));
+  return crates;
 }
 
 /**
@@ -756,6 +798,12 @@ function objectLocation(object: SaveObjectView): WorldLocation | undefined {
  * ever rotates a flat top-down icon by this one angle. Missing rotation data
  * (a component, or an entity the parser couldn't resolve one for) defaults
  * to 0 rather than throwing.
+ *
+ * The quaternion's own yaw is Unreal's raw convention (0° faces +X); FRM's
+ * documented `location.rotation` ("0 = North, 90 = East, …") adds 90° to
+ * that before normalizing, so this must too — otherwise the same building
+ * appears rotated 90° differently depending on whether it's read from a
+ * save or from FRM.
  */
 function objectYawDegrees(object: SaveObjectView): number {
   const rotation = object.transform?.rotation;
@@ -763,7 +811,7 @@ function objectYawDegrees(object: SaveObjectView): number {
 
   const { x, y, z, w } = rotation;
   const radians = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
-  const degrees = (radians * 180) / Math.PI;
+  const degrees = (radians * 180) / Math.PI + 90;
   return ((degrees % 360) + 360) % 360;
 }
 

@@ -236,6 +236,30 @@ describe("death crates baseline", () => {
   });
 });
 
+describe("map death crates baseline", () => {
+  it("places a death crate on the map with class + transform + footprint", () => {
+    const baseline = baselineOf([crate("Crate_1", "Death", { x: 50, y: 60, z: 70 })]);
+
+    expect(baseline.mapDeathCrates).toEqual([
+      {
+        id: "Persistent_Level:PersistentLevel.Crate_1",
+        className: "BP_Crate_C",
+        transform: { x: 50, y: 60, z: 70, rotationDegrees: 0 },
+        footprint: { widthCm: 200, depthCm: 200 },
+      },
+    ]);
+  });
+
+  it("excludes a dismantle crate, matching the death-crates domain's own population", () => {
+    const baseline = baselineOf([crate("Crate_1", "Dismantle", { x: 0, y: 0, z: 0 })]);
+    expect(baseline.mapDeathCrates).toEqual([]);
+  });
+
+  it("reports no map death crates for a save with none", () => {
+    expect(baselineOf([]).mapDeathCrates).toEqual([]);
+  });
+});
+
 describe("sink baseline", () => {
   it("reads accrued points and coupons off the resource sink subsystem", () => {
     const baseline = baselineOf([resourceSink(3_334_555_366, 13)]);
@@ -362,7 +386,10 @@ describe("map buildings baseline", () => {
     ]);
   });
 
-  it("derives yaw from the save's rotation quaternion", () => {
+  it("derives yaw from the save's rotation quaternion, offset to FRM's north-zero convention", () => {
+    // quaternionFromYaw(90) builds Unreal's raw yaw (0 = facing +X); FRM's
+    // own `location.rotation` adds 90° before normalizing (0 = North, 90 =
+    // East), so the extracted value must match — 90 + 90 = 180.
     const baseline = baselineOf([
       machine("Build_ConstructorMk1_C_1", "Recipe_IronPlate_C", {
         location: { x: 0, y: 0, z: 0 },
@@ -370,17 +397,18 @@ describe("map buildings baseline", () => {
       }),
     ]);
 
-    expect(baseline.mapBuildings[0]?.transform.rotationDegrees).toBeCloseTo(90);
+    expect(baseline.mapBuildings[0]?.transform.rotationDegrees).toBeCloseTo(180);
   });
 
   it("normalizes a negative yaw into the 0-359 range", () => {
     const baseline = baselineOf([
       machine("Build_ConstructorMk1_C_1", "Recipe_IronPlate_C", {
         location: { x: 0, y: 0, z: 0 },
-        yawDegrees: -90,
+        yawDegrees: -180,
       }),
     ]);
 
+    // Raw -180 + FRM's 90° offset is -90, which must wrap to 270, not stay negative.
     expect(baseline.mapBuildings[0]?.transform.rotationDegrees).toBeCloseTo(270);
   });
 

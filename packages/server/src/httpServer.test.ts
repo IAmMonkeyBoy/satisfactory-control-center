@@ -145,7 +145,7 @@ describe("item-location search", () => {
 });
 
 describe("Tier 1 map", () => {
-  it("serves the current map snapshot over REST, buildings and movers each tagged", async () => {
+  it("serves the current map snapshot over REST, every layer tagged", async () => {
     const port = await listen();
 
     const res = await fetch(`http://localhost:${port}/api/map`);
@@ -154,11 +154,12 @@ describe("Tier 1 map", () => {
 
     const map = (await res.json()) as MapSnapshot;
     expect(typeof map.generatedAt).toBe("number");
-    for (const domain of [map.buildings, map.movers]) {
+    for (const domain of [map.buildings, map.movers, map.deathCrates]) {
       expect(["live", "baseline"]).toContain(domain.tag.source);
       expect(typeof domain.tag.capturedAt).toBe("number");
     }
     expect(map.buildings.data[0]?.className).toBe("Build_ConstructorMk1_C");
     expect(map.movers.data[0]?.kind).toBe("player");
+    expect(map.deathCrates.data[0]?.className).toBe("BP_Crate_C");
   });
 });

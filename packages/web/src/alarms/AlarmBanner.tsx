@@ -3,14 +3,20 @@ import { useAlarmContext } from "./AlarmContext";
 
 /**
  * The dashboard-wide half of "unmissable from across the room": every active
- * alarm, from every panel, in one banner. Renders nothing when the registry is
- * empty — the banner itself is the all-clear signal by its absence.
+ * alarm, from every panel, in one banner. Renders nothing when there's
+ * nothing to show — the banner itself is the all-clear signal by its
+ * absence. `hideFromBanner` alarms (see `alarms/types.ts`) are excluded from
+ * the rendered line-up but still count toward the "is anything visible at
+ * all" and severity checks below via the initial filter, so a fault that's
+ * naturally per-instance (say, every building on a tripped circuit) doesn't
+ * flood this banner with one line per instance.
  */
 export function AlarmBanner(): JSX.Element | null {
   const { activeAlarms } = useAlarmContext();
-  if (activeAlarms.length === 0) return null;
+  const visible = activeAlarms.filter((alarm) => !alarm.hideFromBanner);
+  if (visible.length === 0) return null;
 
-  const critical = activeAlarms[0]?.severity === "critical";
+  const critical = visible[0]?.severity === "critical";
 
   return (
     <div
@@ -26,7 +32,7 @@ export function AlarmBanner(): JSX.Element | null {
       >
         {critical ? "Alarm" : "Warning"}
       </span>
-      {activeAlarms.map((alarm) => (
+      {visible.map((alarm) => (
         <span key={alarm.key} className="text-neutral-100">
           {alarm.message}
         </span>

@@ -176,6 +176,17 @@ export function sampleMapSnapshot(now: number): MapSnapshot {
         },
       ],
     },
+    deathCrates: {
+      tag: { source: "baseline", capturedAt: now - 4 * 60 * 1000 },
+      data: [
+        {
+          id: "BP_Crate_C_1",
+          className: "BP_Crate_C",
+          transform: { x: 100, y: 200, z: 5, rotationDegrees: 0 },
+          footprint: { widthCm: 200, depthCm: 200 },
+        },
+      ],
+    },
   };
 }
 

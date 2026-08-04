@@ -1,8 +1,8 @@
 import { useEffect, useRef, type JSX } from "react";
 import * as THREE from "three";
 import type {
-  DeathCrate,
   MapBuilding,
+  MapDeathCrate,
   MapFootprint,
   MapMover,
   MapSnapshot,
@@ -30,7 +30,6 @@ export interface MapLayerVisibility {
 
 export interface MapSceneProps {
   mapSnapshot: MapSnapshot | null;
-  deathCrates: readonly DeathCrate[];
   /** Every active alarm; only those carrying a `location` contribute a badge
    *  (see `alarms/types.ts`'s doc comment on `Alarm.location`). */
   alarms: readonly Alarm[];
@@ -186,10 +185,8 @@ function placeMover(marker: THREE.Group, mover: MapMover): void {
   placeOriented(marker, mover.transform, mover.footprint, LAYER_Y.movers, 1);
 }
 
-function placeDeathCrate(marker: THREE.Group, crate: DeathCrate): void {
-  const scene = worldToScenePoint(crate.location);
-  marker.position.set(scene.x, LAYER_Y.deathCrates, scene.z);
-  setFootprintScale(marker, 2, 2);
+function placeDeathCrate(marker: THREE.Group, crate: MapDeathCrate): void {
+  placeOriented(marker, crate.transform, crate.footprint, LAYER_Y.deathCrates, 1);
 }
 
 function placeAlarmBadge(
@@ -223,15 +220,46 @@ interface ThreeContext {
   applyView: () => void;
 }
 
-function applyViewToCamera(camera: THREE.OrthographicCamera, view: MapView, aspect: number): void {
+/**
+ * `orthographicFrustum` already returns world-space-absolute bounds (offset
+ * by `view.center` itself — see its own doc comment and `panView`/`zoomView`,
+ * which both operate in that same absolute space). Three.js's
+ * `OrthographicCamera.left/right/top/bottom` are camera-local, so panning by
+ * *also* moving `camera.position` to `view.center` would double-apply the
+ * translation: a world point at the view's own center would project to NDC
+ * `-view.center / halfExtent` instead of `0`, drifting further off-screen
+ * the farther the view pans from world the origin and the more you zoom in
+ * (smaller `halfExtent` makes the same absolute error a larger fraction of
+ * the view). The camera therefore stays fixed at a constant point straight
+ * above the world origin forever; the frustum bounds alone carry the pan.
+ */
+const CAMERA_FIXED_POSITION = new THREE.Vector3(0, CAMERA_HEIGHT_M, 0);
+const CAMERA_LOOK_TARGET = new THREE.Vector3(0, 0, 0);
+
+export function applyViewToCamera(
+  camera: THREE.OrthographicCamera,
+  view: MapView,
+  aspect: number,
+): void {
   const frustum = orthographicFrustum(view, aspect);
   camera.left = frustum.left;
   camera.right = frustum.right;
-  camera.top = frustum.top;
-  camera.bottom = frustum.bottom;
-  camera.position.set(view.center.x, CAMERA_HEIGHT_M, view.center.z);
   camera.up.set(0, 0, -1);
-  camera.lookAt(view.center.x, 0, view.center.z);
+  camera.position.copy(CAMERA_FIXED_POSITION);
+  camera.lookAt(CAMERA_LOOK_TARGET);
+  // `orthographicFrustum`'s top/bottom describe scene Z directly (its own
+  // convention, shared with panView/zoomView's abstract "scene space" — see
+  // its doc comment): +Z is "top". A straight-down camera can't have both
+  // local X == world X (needed for left/right to work, and already fixed
+  // above) *and* local Y (its own top/bottom axis) == world +Z — a
+  // right-handed frame looking straight down forces one of the two to
+  // invert, and `up: (0,0,-1)` was chosen to keep X uninverted. So this
+  // camera's local Y is world **-Z**, and top/bottom must be assigned
+  // swapped-and-negated to compensate, or the view still centers under
+  // `left`/`right` but drifts to the extreme top/bottom edge under
+  // `top`/`bottom` instead (caught by `applyViewToCamera.test.ts`).
+  camera.top = -frustum.bottom;
+  camera.bottom = -frustum.top;
   camera.updateProjectionMatrix();
 }
 
@@ -247,7 +275,7 @@ function applyViewToCamera(camera: THREE.OrthographicCamera, view: MapView, aspe
  * `.visible` flags, so panning/zooming (which bypasses React state entirely
  * for per-frame smoothness) never fights a re-render.
  */
-export function MapScene({ mapSnapshot, deathCrates, alarms, layers }: MapSceneProps): JSX.Element {
+export function MapScene({ mapSnapshot, alarms, layers }: MapSceneProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const contextRef = useRef<ThreeContext | null>(null);
 
@@ -400,6 +428,7 @@ export function MapScene({ mapSnapshot, deathCrates, alarms, layers }: MapSceneP
 
     const buildings = mapSnapshot?.buildings.data ?? [];
     const movers = mapSnapshot?.movers.data ?? [];
+    const deathCrates = mapSnapshot?.deathCrates.data ?? [];
     const locatedAlarms = alarms.filter(
       (alarm): alarm is Alarm & { location: NonNullable<Alarm["location"]> } =>
         alarm.location !== undefined,
@@ -446,7 +475,7 @@ export function MapScene({ mapSnapshot, deathCrates, alarms, layers }: MapSceneP
       const points: ScenePoint[] = [
         ...buildings.map((b) => worldToScenePoint(b.transform)),
         ...movers.map((m) => worldToScenePoint(m.transform)),
-        ...deathCrates.map((c) => worldToScenePoint(c.location)),
+        ...deathCrates.map((c) => worldToScenePoint(c.transform)),
       ];
       if (points.length > 0) {
         context.view = fitView(points);
@@ -456,7 +485,7 @@ export function MapScene({ mapSnapshot, deathCrates, alarms, layers }: MapSceneP
     }
 
     context.render();
-  }, [mapSnapshot, deathCrates, alarms]);
+  }, [mapSnapshot, alarms]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
 }

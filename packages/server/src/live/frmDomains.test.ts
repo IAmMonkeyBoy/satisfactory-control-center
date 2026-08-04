@@ -417,6 +417,23 @@ describe("mapFactoryBuildings", () => {
     expect(mapFactoryBuildings(raw)[0]?.status).toBe("no-power");
   });
 
+  it("reports no-power for a machine that isn't wired to any circuit, even though its fuse never tripped", () => {
+    // FRM documents CircuitID/CircuitGroupID of -1 as "not connected" — a
+    // building placed but never wired to a power line has no circuit for a
+    // fuse to trip on at all, so FuseTriggered alone would misreport it idle.
+    const raw = [
+      {
+        ID: "b1",
+        ClassName: "Build_ConstructorMk1_C",
+        location: { x: 0, y: 0, z: 0 },
+        IsConfigured: true,
+        IsProducing: false,
+        PowerInfo: { CircuitGroupID: -1, CircuitID: -1, FuseTriggered: false },
+      },
+    ];
+    expect(mapFactoryBuildings(raw)[0]?.status).toBe("no-power");
+  });
+
   it("reports idle for a configured machine that is neither producing nor unpowered", () => {
     const raw = [
       {
