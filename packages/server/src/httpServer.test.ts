@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
-import { deserializeEvent, type WorldState } from "@scc/shared";
+import { deserializeEvent, type StorageSearchResponse, type WorldState } from "@scc/shared";
 import { createServer } from "./httpServer.ts";
-import { boundPort, sampleWorldState } from "./testSupport.ts";
+import { boundPort, sampleStorageSearchResponse, sampleWorldState } from "./testSupport.ts";
 
 let server: Server | undefined;
+let lastSearchQuery: string | undefined;
 
 afterEach(async () => {
   if (server) {
@@ -12,10 +13,18 @@ afterEach(async () => {
     await new Promise<void>((resolve) => server!.close(() => resolve()));
     server = undefined;
   }
+  lastSearchQuery = undefined;
 });
 
 async function listen(): Promise<number> {
-  server = createServer({ pushIntervalMs: 20, buildWorldState: sampleWorldState });
+  server = createServer({
+    pushIntervalMs: 20,
+    buildWorldState: sampleWorldState,
+    searchStorage: (query) => {
+      lastSearchQuery = query;
+      return sampleStorageSearchResponse(query);
+    },
+  });
   await new Promise<void>((resolve) => server!.listen(0, resolve));
   return boundPort(server);
 }
@@ -97,5 +106,29 @@ describe("SSE transport contract", () => {
 
     const ws = (await res.json()) as WorldState;
     expectValidWorldState(ws);
+  });
+});
+
+describe("item-location search", () => {
+  it("serves a search result over REST, passing the item query through", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/storage/search?item=Iron+Plate`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+
+    const result = (await res.json()) as StorageSearchResponse;
+    expect(lastSearchQuery).toBe("Iron Plate");
+    expect(result.query).toBe("Iron Plate");
+    expect(["live", "baseline"]).toContain(result.tag.source);
+    expect(typeof result.matches[0]?.itemDisplayName).toBe("string");
+  });
+
+  it("treats a missing ?item as an empty query rather than failing", async () => {
+    const port = await listen();
+
+    const res = await fetch(`http://localhost:${port}/api/storage/search`);
+    expect(res.status).toBe(200);
+    expect(lastSearchQuery).toBe("");
   });
 });

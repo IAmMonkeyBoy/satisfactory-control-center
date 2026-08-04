@@ -28,7 +28,16 @@ describe("worldStateStore", () => {
 
     expect(ws.followedSession).toBeNull();
     expect(store.followedSessionName()).toBeNull();
-    for (const domain of [ws.power, ws.production, ws.machines, ws.storage, ws.milestones]) {
+    for (const domain of [
+      ws.power,
+      ws.production,
+      ws.machines,
+      ws.storage,
+      ws.depot,
+      ws.deathCrates,
+      ws.sink,
+      ws.milestones,
+    ]) {
       expect(domain.tag).toEqual({ source: "baseline", capturedAt: 0 });
     }
   });
@@ -160,6 +169,47 @@ describe("worldStateStore", () => {
         source: "baseline",
         capturedAt: 1_000,
       });
+    });
+
+    it("never gives death crates a live source — they stay baseline-only by design", () => {
+      store.applyLiveDomains(
+        { power: { circuits: [] } },
+        { sessionName: "Random Defaults", capturedAt: 9_000 },
+      );
+
+      expect(store.snapshot(9_500).deathCrates.tag).toEqual({
+        source: "baseline",
+        capturedAt: 1_000,
+      });
+    });
+
+    it("prefers a live depot over the baseline once FRM's getCloudInv has supplied it", () => {
+      store.applyLiveDomains(
+        { depot: { items: [{ className: "Desc_Cement_C", displayName: "Concrete", count: 99 }] } },
+        { sessionName: "Random Defaults", capturedAt: 9_000 },
+      );
+
+      const ws = store.snapshot(9_500);
+      expect(ws.depot.tag).toEqual({ source: "live", capturedAt: 9_000 });
+      expect(ws.depot.data.items[0]?.count).toBe(99);
+    });
+
+    it("prefers a live sink over the baseline once FRM's getResourceSink has supplied it", () => {
+      store.applyLiveDomains(
+        {
+          sink: {
+            totalPoints: 500,
+            numCoupons: 2,
+            pointsToNextCoupon: 100,
+            percentToNextCoupon: 50,
+          },
+        },
+        { sessionName: "Random Defaults", capturedAt: 9_000 },
+      );
+
+      const ws = store.snapshot(9_500);
+      expect(ws.sink.tag).toEqual({ source: "live", capturedAt: 9_000 });
+      expect(ws.sink.data.numCoupons).toBe(2);
     });
 
     it("keeps each live domain's own capturedAt independent across successive pushes", () => {
@@ -311,5 +361,132 @@ describe("worldStateStore", () => {
     });
     expect(ws.power.tag).toEqual({ source: "baseline", capturedAt: 15_000 });
     expect(ws.storage.data.items[0]?.count).toBe(3);
+  });
+});
+
+describe("searchStorage", () => {
+  it("reports unavailable, not merely empty, before any baseline has been accepted", () => {
+    const store = createWorldStateStore();
+    expect(store.searchStorage("Iron")).toEqual({
+      query: "Iron",
+      available: false,
+      tag: { source: "baseline", capturedAt: 0 },
+      matches: [],
+    });
+  });
+
+  it("stays unavailable for a blank query too — there is still nothing to have searched", () => {
+    const store = createWorldStateStore();
+    expect(store.searchStorage("").available).toBe(false);
+  });
+
+  it("finds every container holding a matching item, with counts and location", () => {
+    const store = createWorldStateStore();
+    store.applyBaseline(
+      baseline({
+        containers: [
+          {
+            id: "container-1",
+            displayName: "Storage Container",
+            location: { x: 1, y: 2, z: 3 },
+            items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 500 }],
+          },
+          {
+            id: "container-2",
+            displayName: "Storage Container",
+            location: { x: 4, y: 5, z: 6 },
+            items: [
+              { className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 120 },
+              { className: "Desc_CopperSheet_C", displayName: "Copper Sheet", count: 30 },
+            ],
+          },
+        ],
+      }),
+      header({ saveDateTime: 12_000 }),
+    );
+
+    const result = store.searchStorage("Iron Plate");
+    expect(result.available).toBe(true);
+    expect(result.tag).toEqual({ source: "baseline", capturedAt: 12_000 });
+    expect(result.matches).toEqual([
+      {
+        containerId: "container-1",
+        containerDisplayName: "Storage Container",
+        location: { x: 1, y: 2, z: 3 },
+        itemClassName: "Desc_IronPlate_C",
+        itemDisplayName: "Iron Plate",
+        count: 500,
+      },
+      {
+        containerId: "container-2",
+        containerDisplayName: "Storage Container",
+        location: { x: 4, y: 5, z: 6 },
+        itemClassName: "Desc_IronPlate_C",
+        itemDisplayName: "Iron Plate",
+        count: 120,
+      },
+    ]);
+  });
+
+  it("matches case-insensitively against the item's display name", () => {
+    const store = createWorldStateStore();
+    store.applyBaseline(
+      baseline({
+        containers: [
+          {
+            id: "container-1",
+            displayName: "Storage Container",
+            location: { x: 0, y: 0, z: 0 },
+            items: [{ className: "Desc_CopperSheet_C", displayName: "Copper Sheet", count: 30 }],
+          },
+        ],
+      }),
+      header({ saveDateTime: 1_000 }),
+    );
+
+    expect(store.searchStorage("copper").matches).toHaveLength(1);
+  });
+
+  it("returns nothing for a blank query rather than dumping every container", () => {
+    const store = createWorldStateStore();
+    store.applyBaseline(
+      baseline({
+        containers: [
+          {
+            id: "container-1",
+            displayName: "Storage Container",
+            location: { x: 0, y: 0, z: 0 },
+            items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 500 }],
+          },
+        ],
+      }),
+      header({ saveDateTime: 1_000 }),
+    );
+
+    expect(store.searchStorage("  ").matches).toEqual([]);
+  });
+
+  it("goes unavailable again after a session reset, even though a baseline existed before", () => {
+    const store = createWorldStateStore();
+    store.applyBaseline(
+      baseline({
+        containers: [
+          {
+            id: "container-1",
+            displayName: "Storage Container",
+            location: { x: 0, y: 0, z: 0 },
+            items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 500 }],
+          },
+        ],
+      }),
+      header({ saveDateTime: 1_000 }),
+    );
+    expect(store.searchStorage("Iron").available).toBe(true);
+
+    store.reset();
+
+    const result = store.searchStorage("Iron");
+    expect(result.available).toBe(false);
+    expect(result.matches).toEqual([]);
   });
 });

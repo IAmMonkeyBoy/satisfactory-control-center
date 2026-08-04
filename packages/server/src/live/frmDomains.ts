@@ -10,10 +10,14 @@
  * Only the endpoints this build's WorldState domains can use are mapped here:
  * `getPower` (power), `getProdStats` (production, at the aggregate item level
  * the domain already models), `getFactory` (per-machine detail, rolled up into
- * the machines domain), `getStorageInv` (storage), and `getSessionInfo`
- * (session identity, for the followed-session gating rules — not a domain
- * itself). `getTrains` (map movers) has no WorldState domain to land in yet;
- * it arrives with the Tier 1 map (spec, build ticket 8).
+ * the machines domain), `getStorageInv` (storage), `getCloudInv` (depot),
+ * `getResourceSink` (sink), and `getSessionInfo` (session identity, for the
+ * followed-session gating rules — not a domain itself). `getCrateInv` has a
+ * domain (death crates) but is deliberately not mapped: death-crate contents
+ * stay baseline-only by design (spec, "Followed session and merge rules"), so
+ * there's no live counterpart to merge it against. `getTrains` (map movers)
+ * has no WorldState domain to land in yet; it arrives with the Tier 1 map
+ * (spec, build ticket 8).
  */
 import type {
   MachineRollup,
@@ -21,6 +25,7 @@ import type {
   PowerCircuit,
   PowerState,
   ProductionState,
+  SinkState,
   StorageState,
 } from "@scc/shared";
 
@@ -194,8 +199,9 @@ export function mapMachines(raw: unknown): MachinesState {
 /**
  * `getStorageInv` -> the storage domain, item totals aggregated across every
  * container FRM reports (mirrors `extractBaseline.ts`'s storage aggregation,
- * minus the dimensional depot: FRM exposes that separately via `getCloudInv`,
- * not among this build's subscribed endpoints).
+ * minus the dimensional depot: FRM reports that separately via `getCloudInv`
+ * — see {@link mapDepot} — and `extractDepot` mirrors the same split on the
+ * baseline side).
  */
 export function mapStorage(raw: unknown): StorageState {
   const counts = new Map<string, { displayName: string; count: number }>();
@@ -221,6 +227,41 @@ export function mapStorage(raw: unknown): StorageState {
 
   items.sort((a, b) => b.count - a.count || a.className.localeCompare(b.className));
   return { items };
+}
+
+/**
+ * `getCloudInv` -> the depot domain: the dimensional depot's item totals,
+ * reported flat (unlike `getStorageInv`, there's only one depot, so no
+ * per-container grouping to do).
+ */
+export function mapDepot(raw: unknown): StorageState {
+  const items = asArray(raw).flatMap((entry) => {
+    const record = asRecord(entry);
+    const className = stringField(record, "ClassName");
+    const amount = numberField(record, "Amount");
+    if (!className || amount === undefined || amount <= 0) return [];
+
+    return [{ className, displayName: stringField(record, "Name") ?? className, count: amount }];
+  });
+
+  items.sort((a, b) => b.count - a.count || a.className.localeCompare(b.className));
+  return { items };
+}
+
+/**
+ * `getResourceSink` -> the sink domain: AWESOME Sink points and coupons.
+ * FRM's documented example wraps the payload in a single-element array; a
+ * bare object is accepted too, the same defensive either-shape handling
+ * `mapSessionName` applies to `getSessionInfo`.
+ */
+export function mapSink(raw: unknown): SinkState {
+  const record = Array.isArray(raw) ? asRecord(raw[0]) : asRecord(raw);
+  return {
+    totalPoints: numberField(record, "TotalPoints") ?? 0,
+    numCoupons: numberField(record, "NumCoupon") ?? 0,
+    pointsToNextCoupon: numberField(record, "PointsToCoupon") ?? null,
+    percentToNextCoupon: numberField(record, "Percent") ?? null,
+  };
 }
 
 /**

@@ -16,12 +16,15 @@
  * what it's told and never second-guesses it.
  */
 import type {
+  DeathCratesState,
   MachinesState,
   MilestonesState,
   PowerState,
   ProductionState,
+  SinkState,
   Source,
   StorageState,
+  StorageSearchResponse,
   WorldState,
 } from "@scc/shared";
 import { emptyBaselineDomains, type BaselineDomains } from "./extractBaseline.ts";
@@ -34,6 +37,8 @@ export interface LiveDomainUpdate {
   production?: ProductionState;
   machines?: MachinesState;
   storage?: StorageState;
+  depot?: StorageState;
+  sink?: SinkState;
 }
 
 export interface ApplyLiveDomainsArgs {
@@ -57,6 +62,12 @@ export interface WorldStateStore {
   reset(): void;
   /** The session currently followed, or null before any save has been accepted. */
   followedSessionName(): string | null;
+  /** Item-location search across containers — baseline-only (spec: "full
+   *  container inventories" is a domain FRM doesn't expose) and served on
+   *  demand via REST rather than folded into every WorldState snapshot
+   *  (ADR 0003: request/response, not SSE). A blank query returns no matches
+   *  rather than dumping every container. */
+  searchStorage(query: string): StorageSearchResponse;
 }
 
 interface LiveDomainEntry<T> {
@@ -88,6 +99,8 @@ interface StoreState {
     production?: LiveDomainEntry<ProductionState>;
     machines?: LiveDomainEntry<MachinesState>;
     storage?: LiveDomainEntry<StorageState>;
+    depot?: LiveDomainEntry<StorageState>;
+    sink?: LiveDomainEntry<SinkState>;
   };
 }
 
@@ -176,6 +189,20 @@ export function createWorldStateStore(): WorldStateStore {
         baseline.domains.storage satisfies StorageState,
         baseline.capturedAt,
       );
+      const depot = resolveDomain(
+        live.depot,
+        live.connected,
+        baseline.exists,
+        baseline.domains.depot satisfies StorageState,
+        baseline.capturedAt,
+      );
+      const sink = resolveDomain(
+        live.sink,
+        live.connected,
+        baseline.exists,
+        baseline.domains.sink satisfies SinkState,
+        baseline.capturedAt,
+      );
 
       return {
         generatedAt: now,
@@ -196,6 +223,15 @@ export function createWorldStateStore(): WorldStateStore {
         production,
         machines,
         storage,
+        depot,
+        // Always baseline: death-crate contents are a domain FRM doesn't
+        // expose in this build (spec, "Followed session and merge rules"),
+        // so there's no live entry to resolve against.
+        deathCrates: {
+          tag: baselineTag,
+          data: baseline.domains.deathCrates satisfies DeathCratesState,
+        },
+        sink,
         milestones: {
           tag: baselineTag,
           data: baseline.domains.milestones satisfies MilestonesState,
@@ -223,6 +259,8 @@ export function createWorldStateStore(): WorldStateStore {
           production: update.production ? entry(update.production) : state.live.production,
           machines: update.machines ? entry(update.machines) : state.live.machines,
           storage: update.storage ? entry(update.storage) : state.live.storage,
+          depot: update.depot ? entry(update.depot) : state.live.depot,
+          sink: update.sink ? entry(update.sink) : state.live.sink,
         },
       };
     },
@@ -242,6 +280,42 @@ export function createWorldStateStore(): WorldStateStore {
 
     followedSessionName(): string | null {
       return state.followedSessionName;
+    },
+
+    searchStorage(query: string): StorageSearchResponse {
+      const needle = query.trim().toLowerCase();
+      const { baseline } = state;
+
+      // Distinct from an empty `matches`: no baseline has ever been captured
+      // for the followed session, so there is nothing to have searched yet —
+      // reporting empty matches here would read as a confident "nothing
+      // holds that item" when the honest answer is "unknown".
+      const matches =
+        !baseline.exists || needle === ""
+          ? []
+          : baseline.domains.containers.flatMap((container) =>
+              container.items
+                .filter(
+                  (item) =>
+                    item.displayName.toLowerCase().includes(needle) ||
+                    item.className.toLowerCase().includes(needle),
+                )
+                .map((item) => ({
+                  containerId: container.id,
+                  containerDisplayName: container.displayName,
+                  location: container.location,
+                  itemClassName: item.className,
+                  itemDisplayName: item.displayName,
+                  count: item.count,
+                })),
+            );
+
+      return {
+        query,
+        available: baseline.exists,
+        tag: { source: "baseline", capturedAt: baseline.capturedAt },
+        matches,
+      };
     },
   };
 }

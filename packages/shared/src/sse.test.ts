@@ -11,6 +11,12 @@ function validWorldState(): WorldState {
     production: { tag, data: { items: [] } },
     machines: { tag, data: { machines: [] } },
     storage: { tag, data: { items: [] } },
+    depot: { tag, data: { items: [] } },
+    deathCrates: { tag, data: { crates: [] } },
+    sink: {
+      tag,
+      data: { totalPoints: 0, numCoupons: 0, pointsToNextCoupon: null, percentToNextCoupon: null },
+    },
     milestones: {
       tag,
       data: { currentMilestone: "HUB Upgrade 1", spaceElevatorPhase: "Phase 1" },

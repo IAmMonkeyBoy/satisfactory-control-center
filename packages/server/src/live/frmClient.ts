@@ -18,7 +18,10 @@ import { errorMessage } from "../errorMessage.ts";
 
 /** The FRM endpoints this build's WorldState domains can use, plus session
  *  identity. `getTrains` has no domain to land in yet (see `frmDomains.ts`)
- *  and is deliberately not subscribed.
+ *  and is deliberately not subscribed; `getCrateInv` (death crates) is
+ *  likewise not subscribed — death-crate contents stay baseline-only by
+ *  design (spec, "Followed session and merge rules"), so there's nothing for
+ *  a live push to feed.
  *
  *  `getFactory` is one of the "heavy" endpoints the spec warns can hitch a
  *  large save (spec, "Ingestor 1: FRM client") — this module already
@@ -27,7 +30,13 @@ import { errorMessage } from "../errorMessage.ts";
  *  cadence (~5 s) rather than tightening it; nothing here polls faster just
  *  because `getFactory` joined the subscription list. */
 export type FrmEndpoint =
-  "getSessionInfo" | "getPower" | "getProdStats" | "getFactory" | "getStorageInv";
+  | "getSessionInfo"
+  | "getPower"
+  | "getProdStats"
+  | "getFactory"
+  | "getStorageInv"
+  | "getCloudInv"
+  | "getResourceSink";
 
 const ALL_ENDPOINTS: readonly FrmEndpoint[] = [
   "getSessionInfo",
@@ -35,6 +44,8 @@ const ALL_ENDPOINTS: readonly FrmEndpoint[] = [
   "getProdStats",
   "getFactory",
   "getStorageInv",
+  "getCloudInv",
+  "getResourceSink",
 ];
 
 /** Whether FRM is reachable at all right now, by either transport. */

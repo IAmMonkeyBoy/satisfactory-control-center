@@ -95,6 +95,15 @@ export const docsFixture = [
     ],
   },
   {
+    NativeClass: "/Script/CoreUObject.Class'/Script/FactoryGame.FGBuildableStorage'",
+    Classes: [
+      {
+        ClassName: "Build_StorageContainerMk1_C",
+        mDisplayName: "Storage Container",
+      },
+    ],
+  },
+  {
     NativeClass: "/Script/CoreUObject.Class'/Script/FactoryGame.FGSchematic'",
     Classes: [
       {

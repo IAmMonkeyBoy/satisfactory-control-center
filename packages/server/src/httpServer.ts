@@ -1,5 +1,5 @@
 import http from "node:http";
-import { encodeSseFrame, type WorldState } from "@scc/shared";
+import { encodeSseFrame, type StorageSearchResponse, type WorldState } from "@scc/shared";
 import { serveStatic } from "./staticFiles.ts";
 
 export interface ServerOptions {
@@ -7,6 +7,9 @@ export interface ServerOptions {
   pushIntervalMs?: number;
   /** WorldState source — the store the ingestors write into. */
   buildWorldState: (now: number) => WorldState;
+  /** Item-location search — the request/response half of the storage domain
+   *  (ADR 0003), backed by the same store as `buildWorldState`. */
+  searchStorage: (query: string) => StorageSearchResponse;
   /** Built web app directory to serve non-API GETs from; omit in tests. */
   staticDir?: string;
 }
@@ -14,16 +17,18 @@ export interface ServerOptions {
 const DEFAULT_PUSH_INTERVAL_MS = 2000;
 
 /**
- * Create the control-center HTTP server. Two routes carry the transport contract:
- *   GET /api/worldstate — REST snapshot of the current WorldState (request/response)
- *   GET /api/stream     — SSE stream that pushes WorldState snapshots (push)
+ * Create the control-center HTTP server. Three routes carry the transport contract:
+ *   GET /api/worldstate      — REST snapshot of the current WorldState (request/response)
+ *   GET /api/stream          — SSE stream that pushes WorldState snapshots (push)
+ *   GET /api/storage/search  — item-location search, `?item=` a name/class substring
+ *                              (request/response, per ADR 0003 — never pushed over SSE)
  *
  * The returned server is not yet listening; the caller binds a port. Tests bind
  * port 0 for an ephemeral port.
  */
 export function createServer(options: ServerOptions): http.Server {
   const pushIntervalMs = options.pushIntervalMs ?? DEFAULT_PUSH_INTERVAL_MS;
-  const { buildWorldState, staticDir } = options;
+  const { buildWorldState, searchStorage, staticDir } = options;
 
   return http.createServer((req, res) => {
     // Single-user LAN tool: allow the Vite dev origin to read the API directly.
@@ -40,6 +45,13 @@ export function createServer(options: ServerOptions): http.Server {
 
     if (req.method === "GET" && url.pathname === "/api/stream") {
       handleStream(res, buildWorldState, pushIntervalMs);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/storage/search") {
+      const body = JSON.stringify(searchStorage(url.searchParams.get("item") ?? ""));
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(body);
       return;
     }
 

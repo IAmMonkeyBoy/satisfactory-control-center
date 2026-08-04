@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Server } from "node:http";
 import { createServer } from "./httpServer.ts";
-import { boundPort, sampleWorldState } from "./testSupport.ts";
+import { boundPort, sampleStorageSearchResponse, sampleWorldState } from "./testSupport.ts";
 
 let server: Server | undefined;
 let dir: string;
@@ -25,7 +25,11 @@ afterEach(async () => {
 });
 
 async function listen(): Promise<number> {
-  server = createServer({ staticDir: dir, buildWorldState: sampleWorldState });
+  server = createServer({
+    staticDir: dir,
+    buildWorldState: sampleWorldState,
+    searchStorage: sampleStorageSearchResponse,
+  });
   await new Promise<void>((resolve) => server!.listen(0, resolve));
   return boundPort(server);
 }

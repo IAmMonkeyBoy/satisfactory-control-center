@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { mapMachines, mapPower, mapProduction, mapSessionName, mapStorage } from "./frmDomains.ts";
+import {
+  mapDepot,
+  mapMachines,
+  mapPower,
+  mapProduction,
+  mapSessionName,
+  mapSink,
+  mapStorage,
+} from "./frmDomains.ts";
 
 describe("mapPower", () => {
   it("maps a getPower circuit into the power domain shape", () => {
@@ -256,6 +264,83 @@ describe("mapStorage", () => {
 
   it("degrades to an empty domain on a malformed payload", () => {
     expect(mapStorage(null).items).toEqual([]);
+  });
+});
+
+describe("mapDepot", () => {
+  it("maps a getCloudInv entry into the storage item shape", () => {
+    const raw = [
+      { Name: "Iron Plate", ClassName: "Desc_IronPlate_C", Amount: 164, MaxAmount: 200 },
+      { Name: "Copper Sheet", ClassName: "Desc_CopperSheet_C", Amount: 200, MaxAmount: 200 },
+    ];
+
+    expect(mapDepot(raw)).toEqual({
+      items: [
+        { className: "Desc_CopperSheet_C", displayName: "Copper Sheet", count: 200 },
+        { className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 164 },
+      ],
+    });
+  });
+
+  it("skips an entry with no amount, a non-positive amount, or no className", () => {
+    const raw = [
+      { Name: "Iron Plate", ClassName: "Desc_IronPlate_C", Amount: 0 },
+      { Name: "Screws", Amount: 40 },
+      { ClassName: "Desc_Screw_C" },
+    ];
+    expect(mapDepot(raw).items).toEqual([]);
+  });
+
+  it("degrades to an empty domain on a malformed payload", () => {
+    expect(mapDepot(null).items).toEqual([]);
+    expect(mapDepot("nope").items).toEqual([]);
+  });
+});
+
+describe("mapSink", () => {
+  it("maps a getResourceSink payload into the sink domain shape", () => {
+    const raw = [
+      {
+        Name: "A.W.E.S.O.M.E.",
+        NumCoupon: 13,
+        Percent: 15.7,
+        GraphPoints: [{ Index: 0, value: 33218 }],
+        PointsToCoupon: 14902634,
+        TotalPoints: 3334555366,
+      },
+    ];
+
+    expect(mapSink(raw)).toEqual({
+      totalPoints: 3334555366,
+      numCoupons: 13,
+      pointsToNextCoupon: 14902634,
+      percentToNextCoupon: 15.7,
+    });
+  });
+
+  it("accepts a bare object, not just the single-element array FRM's example shows", () => {
+    const raw = { NumCoupon: 1, Percent: 0, PointsToCoupon: 100, TotalPoints: 50 };
+    expect(mapSink(raw)).toEqual({
+      totalPoints: 50,
+      numCoupons: 1,
+      pointsToNextCoupon: 100,
+      percentToNextCoupon: 0,
+    });
+  });
+
+  it("reports zero/null rather than throwing on a malformed payload", () => {
+    expect(mapSink(null)).toEqual({
+      totalPoints: 0,
+      numCoupons: 0,
+      pointsToNextCoupon: null,
+      percentToNextCoupon: null,
+    });
+    expect(mapSink("nope")).toEqual({
+      totalPoints: 0,
+      numCoupons: 0,
+      pointsToNextCoupon: null,
+      percentToNextCoupon: null,
+    });
   });
 });
 
