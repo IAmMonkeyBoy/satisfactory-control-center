@@ -22,7 +22,7 @@ import {
   type FrmEndpoint,
   type FrmStatus,
 } from "./frmClient.ts";
-import { mapPower, mapProduction, mapSessionName, mapStorage } from "./frmDomains.ts";
+import { mapMachines, mapPower, mapProduction, mapSessionName, mapStorage } from "./frmDomains.ts";
 
 export type LiveEvent =
   | { type: "sessionChanged"; from: string | null; to: string }
@@ -161,6 +161,8 @@ function domainUpdate(endpoint: FrmEndpoint, data: unknown): LiveDomainUpdate | 
       return { power: mapPower(data) };
     case "getProdStats":
       return { production: mapProduction(data) };
+    case "getFactory":
+      return { machines: mapMachines(data) };
     case "getStorageInv":
       return { storage: mapStorage(data) };
     case "getSessionInfo":

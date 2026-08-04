@@ -25,9 +25,17 @@
   color-scheme: dark;
 }
 
+/* Pulses `box-shadow`, not `background-color`: every element this class lands
+   on (panels, the alarm banner) already gets its resting background from a
+   Tailwind opacity utility (`bg-metal-900/90`, `bg-alarm-critical/10`), which
+   compiles to `color-mix(in oklab, …, transparent)`. Animating
+   `background-color` against that computed value made Chromium interpolate
+   through oklab with a `transparent` operand and blow out to a solid,
+   illegible white/yellow flash instead of the intended subtle red tint — a
+   box-shadow glow avoids fighting the background utility entirely. */
 @keyframes alarm-pulse {
   50% {
-    background-color: rgb(224 67 63 / 0.16);
+    box-shadow: inset 0 0 0 999px rgb(224 67 63 / 0.16);
   }
 }
 

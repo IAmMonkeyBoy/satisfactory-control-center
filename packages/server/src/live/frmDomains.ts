@@ -9,13 +9,20 @@
  *
  * Only the endpoints this build's WorldState domains can use are mapped here:
  * `getPower` (power), `getProdStats` (production, at the aggregate item level
- * the domain already models), `getStorageInv` (storage), and `getSessionInfo`
+ * the domain already models), `getFactory` (per-machine detail, rolled up into
+ * the machines domain), `getStorageInv` (storage), and `getSessionInfo`
  * (session identity, for the followed-session gating rules — not a domain
- * itself). `getFactory` (per-machine detail) and `getTrains` (map movers) have
- * no WorldState domain to land in yet; they arrive with the production
- * efficiency panel and the Tier 1 map (spec, build tickets 5 and 8).
+ * itself). `getTrains` (map movers) has no WorldState domain to land in yet;
+ * it arrives with the Tier 1 map (spec, build ticket 8).
  */
-import type { PowerCircuit, PowerState, ProductionState, StorageState } from "@scc/shared";
+import type {
+  MachineRollup,
+  MachinesState,
+  PowerCircuit,
+  PowerState,
+  ProductionState,
+  StorageState,
+} from "@scc/shared";
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null
@@ -100,6 +107,88 @@ export function mapProduction(raw: unknown): ProductionState {
 
   items.sort((a, b) => b.maxPerMin - a.maxPerMin || a.className.localeCompare(b.className));
   return { items };
+}
+
+/**
+ * `getFactory` -> the machines domain: per-building-class rollups of how many
+ * machines are producing, idle, or paused, plus their average actual output
+ * (`Productivity`) against installed rate. Grouped by `ClassName` (the
+ * building type, e.g. `Build_ConstructorMk1_C`) — `getFactory` reports one
+ * entry per physical machine, not per item, so this is the aggregation the
+ * baseline extractor can't do (machine running state is runtime-only).
+ *
+ * An unconfigured machine (`IsConfigured: false` — no recipe set, the same
+ * "not yet a producer" state `extractBaseline.ts`'s `extractMachines` skips
+ * entirely) is excluded here too, not just from the efficiency average: an
+ * unconfigured Constructor reports `IsProducing: false`, so counting it as
+ * an idle machine would make a freshly-placed, not-yet-configured building
+ * register as a stalled production line, and would make `totalCount` swing
+ * on nothing but which source answered — live vs. baseline.
+ *
+ * A paused (but configured) machine still reports a `Productivity` of 0, so
+ * counting it toward the efficiency average (rather than excluding it as "no
+ * data") is what makes a machine switched off in-game visible in the
+ * rollup's efficiency figure, not just in its own status count.
+ */
+export function mapMachines(raw: unknown): MachinesState {
+  interface Group {
+    displayName: string;
+    total: number;
+    producing: number;
+    idle: number;
+    paused: number;
+    efficiencySum: number;
+    efficiencyCount: number;
+  }
+  const groups = new Map<string, Group>();
+
+  for (const item of asArray(raw)) {
+    const record = asRecord(item);
+    const className = stringField(record, "ClassName");
+    if (!className) continue;
+    if (!(booleanField(record, "IsConfigured") ?? false)) continue;
+
+    const group = groups.get(className) ?? {
+      displayName: stringField(record, "Name") ?? className,
+      total: 0,
+      producing: 0,
+      idle: 0,
+      paused: 0,
+      efficiencySum: 0,
+      efficiencyCount: 0,
+    };
+    group.total += 1;
+
+    const paused = booleanField(record, "IsPaused") ?? false;
+    const producing = booleanField(record, "IsProducing") ?? false;
+    if (paused) group.paused += 1;
+    else if (producing) group.producing += 1;
+    else group.idle += 1;
+
+    const productivity = numberField(record, "Productivity");
+    if (productivity !== undefined) {
+      group.efficiencySum += productivity;
+      group.efficiencyCount += 1;
+    }
+
+    groups.set(className, group);
+  }
+
+  const machines: MachineRollup[] = [...groups].map(([className, group]) => ({
+    className,
+    displayName: group.displayName,
+    totalCount: group.total,
+    producingCount: group.producing,
+    idleCount: group.idle,
+    pausedCount: group.paused,
+    averageEfficiencyPercent:
+      group.efficiencyCount > 0
+        ? Math.round((group.efficiencySum / group.efficiencyCount) * 100) / 100
+        : null,
+  }));
+
+  machines.sort((a, b) => b.totalCount - a.totalCount || a.className.localeCompare(b.className));
+  return { machines };
 }
 
 /**

@@ -13,7 +13,13 @@
  * This runs inside the parser worker, and only its small result crosses back to
  * the main thread — never the parsed save itself.
  */
-import type { MilestonesState, PowerState, ProductionState, StorageState } from "@scc/shared";
+import type {
+  MachinesState,
+  MilestonesState,
+  PowerState,
+  ProductionState,
+  StorageState,
+} from "@scc/shared";
 import { classNameFromPath, type StaticData } from "../staticData/staticData.ts";
 
 /**
@@ -31,6 +37,7 @@ export interface SaveObjectView {
 export interface BaselineDomains {
   power: PowerState;
   production: ProductionState;
+  machines: MachinesState;
   storage: StorageState;
   milestones: MilestonesState;
 }
@@ -43,6 +50,7 @@ export function emptyBaselineDomains(): BaselineDomains {
   return {
     power: { circuits: [] },
     production: { items: [] },
+    machines: { machines: [] },
     storage: { items: [] },
     milestones: { currentMilestone: null, spaceElevatorPhase: null },
   };
@@ -56,6 +64,7 @@ export function extractBaseline(
   return {
     power: extractPower(index, staticData),
     production: extractProduction(index, staticData),
+    machines: extractMachines(index, staticData),
     storage: extractStorage(index, staticData),
     milestones: extractMilestones(index, staticData),
   };
@@ -156,6 +165,36 @@ function extractProduction(index: SaveIndex, staticData: StaticData): Production
 
   items.sort((a, b) => b.maxPerMin - a.maxPerMin || a.className.localeCompare(b.className));
   return { items };
+}
+
+/**
+ * Machine rollups, counted per building class. A save records which machines
+ * exist and which recipe each is set to — `totalCount` — but not whether one
+ * is actually running, starved, or paused right now, so the running-state
+ * split and the efficiency figure stay null for the live feed to fill in
+ * (mirrors the power domain's live-only fields).
+ */
+function extractMachines(index: SaveIndex, staticData: StaticData): MachinesState {
+  const totals = new Map<string, number>();
+
+  for (const object of index.all) {
+    if (!objectPath(object.properties.mCurrentRecipe)) continue;
+    const className = classNameFromPath(object.typePath);
+    totals.set(className, (totals.get(className) ?? 0) + 1);
+  }
+
+  const machines = [...totals].map(([className, totalCount]) => ({
+    className,
+    displayName: staticData.building(className)?.displayName ?? className,
+    totalCount,
+    producingCount: null,
+    idleCount: null,
+    pausedCount: null,
+    averageEfficiencyPercent: null,
+  }));
+
+  machines.sort((a, b) => b.totalCount - a.totalCount || a.className.localeCompare(b.className));
+  return { machines };
 }
 
 function extractStorage(index: SaveIndex, staticData: StaticData): StorageState {

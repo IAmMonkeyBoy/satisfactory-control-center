@@ -44,6 +44,22 @@ export function sampleWorldState(now: number): WorldState {
         ],
       },
     },
+    machines: {
+      tag: { source: "live", capturedAt: now },
+      data: {
+        machines: [
+          {
+            className: "Build_ConstructorMk1_C",
+            displayName: "Constructor",
+            totalCount: 3,
+            producingCount: 2,
+            idleCount: 0,
+            pausedCount: 1,
+            averageEfficiencyPercent: 75,
+          },
+        ],
+      },
+    },
     storage: {
       // A baseline domain: sourced from the last save, so a few minutes old.
       tag: { source: "baseline", capturedAt: now - 4 * 60 * 1000 },
