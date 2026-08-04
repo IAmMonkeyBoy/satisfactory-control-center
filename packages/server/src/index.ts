@@ -27,6 +27,7 @@ const server = createServer({
   staticDir,
   buildWorldState: (now) => store.snapshot(now),
   searchStorage: (query) => store.searchStorage(query),
+  buildMapSnapshot: (now) => store.mapSnapshot(now),
 });
 
 server.listen(PORT, () => {
@@ -35,6 +36,7 @@ server.listen(PORT, () => {
   console.log(`  SSE stream:    http://localhost:${PORT}/api/stream`);
   console.log(`  REST snapshot: http://localhost:${PORT}/api/worldstate`);
   console.log(`  Storage search: http://localhost:${PORT}/api/storage/search?item=`);
+  console.log(`  Map snapshot:  http://localhost:${PORT}/api/map`);
 });
 
 // Set once the save watcher starts, below — read by `logLiveEvent` so a live

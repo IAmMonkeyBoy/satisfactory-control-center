@@ -18,6 +18,9 @@
 import type {
   DeathCratesState,
   MachinesState,
+  MapBuilding,
+  MapMover,
+  MapSnapshot,
   MilestonesState,
   PowerState,
   ProductionState,
@@ -31,7 +34,16 @@ import { emptyBaselineDomains, type BaselineDomains } from "./extractBaseline.ts
 import type { SaveHeader } from "./saveHeader.ts";
 
 /** The live-feed domains a single FRM push can update. Any subset may be present:
- *  FRM pushes one subscribed endpoint at a time. */
+ *  FRM pushes one subscribed endpoint at a time.
+ *
+ *  The four mover fields are deliberately separate rather than one combined
+ *  `movers` field: `getPlayer`, `getVehicles`, `getTrains` and `getDrone`
+ *  each push on their own independent cycle, and a combined field would mean
+ *  whichever endpoint pushed most recently wholesale-replacing the movers
+ *  the other three had just reported — wiping out, say, every known vehicle
+ *  the moment a player-only push arrives. Keeping them apart lets
+ *  {@link WorldStateStore.mapSnapshot} concatenate the four independently
+ *  and tag the result honestly (see its own doc comment). */
 export interface LiveDomainUpdate {
   power?: PowerState;
   production?: ProductionState;
@@ -39,6 +51,11 @@ export interface LiveDomainUpdate {
   storage?: StorageState;
   depot?: StorageState;
   sink?: SinkState;
+  mapBuildings?: MapBuilding[];
+  mapPlayers?: MapMover[];
+  mapVehicles?: MapMover[];
+  mapTrains?: MapMover[];
+  mapDrones?: MapMover[];
 }
 
 export interface ApplyLiveDomainsArgs {
@@ -68,6 +85,10 @@ export interface WorldStateStore {
    *  (ADR 0003: request/response, not SSE). A blank query returns no matches
    *  rather than dumping every container. */
   searchStorage(query: string): StorageSearchResponse;
+  /** The Tier 1 map's payload — buildings and movers, each with their own
+   *  source/age tag — served on demand via REST (ADR 0003), not folded into
+   *  the SSE-pushed WorldState. */
+  mapSnapshot(now: number): MapSnapshot;
 }
 
 interface LiveDomainEntry<T> {
@@ -101,6 +122,11 @@ interface StoreState {
     storage?: LiveDomainEntry<StorageState>;
     depot?: LiveDomainEntry<StorageState>;
     sink?: LiveDomainEntry<SinkState>;
+    mapBuildings?: LiveDomainEntry<MapBuilding[]>;
+    mapPlayers?: LiveDomainEntry<MapMover[]>;
+    mapVehicles?: LiveDomainEntry<MapMover[]>;
+    mapTrains?: LiveDomainEntry<MapMover[]>;
+    mapDrones?: LiveDomainEntry<MapMover[]>;
   };
 }
 
@@ -271,6 +297,11 @@ export function createWorldStateStore(): WorldStateStore {
           storage: update.storage ? entry(update.storage) : state.live.storage,
           depot: update.depot ? entry(update.depot) : state.live.depot,
           sink: update.sink ? entry(update.sink) : state.live.sink,
+          mapBuildings: update.mapBuildings ? entry(update.mapBuildings) : state.live.mapBuildings,
+          mapPlayers: update.mapPlayers ? entry(update.mapPlayers) : state.live.mapPlayers,
+          mapVehicles: update.mapVehicles ? entry(update.mapVehicles) : state.live.mapVehicles,
+          mapTrains: update.mapTrains ? entry(update.mapTrains) : state.live.mapTrains,
+          mapDrones: update.mapDrones ? entry(update.mapDrones) : state.live.mapDrones,
         },
       };
     },
@@ -327,5 +358,62 @@ export function createWorldStateStore(): WorldStateStore {
         matches,
       };
     },
+
+    mapSnapshot(now: number): MapSnapshot {
+      const { baseline, live } = state;
+
+      const buildings = resolveDomain(
+        live.mapBuildings,
+        live.connected,
+        baseline.exists,
+        baseline.domains.mapBuildings satisfies MapBuilding[],
+        baseline.capturedAt,
+      );
+
+      // Movers have no baseline source at all (they're runtime-only — see
+      // `mapSnapshot.ts`'s doc comment), so each kind resolves with
+      // `baselineExists: false`: `resolveDomain` then reports `live` (even
+      // stale-but-real, mirroring `followedSession`'s own fallback) whenever
+      // that kind has ever pushed, or the same startup-default `baseline`/
+      // `capturedAt: 0` every other never-yet-populated domain reports.
+      const players = resolveDomain(live.mapPlayers, live.connected, false, [], 0);
+      const vehicles = resolveDomain(live.mapVehicles, live.connected, false, [], 0);
+      const trains = resolveDomain(live.mapTrains, live.connected, false, [], 0);
+      const drones = resolveDomain(live.mapDrones, live.connected, false, [], 0);
+
+      return {
+        generatedAt: now,
+        buildings,
+        movers: {
+          tag: combineMoverTags([players.tag, vehicles.tag, trains.tag, drones.tag]),
+          data: [...players.data, ...vehicles.data, ...trains.data, ...drones.data],
+        },
+        // Always baseline, same as WorldState's own deathCrates domain — FRM
+        // doesn't expose crate contents live, so there's no live entry to
+        // resolve against.
+        deathCrates: {
+          tag: { source: "baseline", capturedAt: baseline.capturedAt },
+          data: baseline.domains.mapDeathCrates,
+        },
+      };
+    },
   };
+}
+
+/**
+ * One combined tag for the movers domain's four independently-pushed kinds
+ * (see {@link LiveDomainUpdate}'s doc comment for why they're separate
+ * entries). `live` wins the moment any kind has ever reported, at the most
+ * recent of their capturedAts — the four endpoints share FRM's push cadence,
+ * so in practice they land within moments of each other; the honest
+ * `baseline`/`capturedAt: 0` default only survives here before the very
+ * first mover push of any kind.
+ */
+function combineMoverTags(tags: readonly { source: Source; capturedAt: number }[]): {
+  source: Source;
+  capturedAt: number;
+} {
+  const liveTags = tags.filter((tag) => tag.source === "live");
+  if (liveTags.length === 0) return { source: "baseline", capturedAt: 0 };
+  return { source: "live", capturedAt: Math.max(...liveTags.map((tag) => tag.capturedAt)) };
 }

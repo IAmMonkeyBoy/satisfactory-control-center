@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   mapDepot,
+  mapDrones,
+  mapFactoryBuildings,
   mapMachines,
+  mapPlayers,
   mapPower,
   mapProduction,
   mapSessionName,
   mapSink,
   mapStorage,
+  mapTrains,
+  mapVehicles,
 } from "./frmDomains.ts";
 
 describe("mapPower", () => {
@@ -363,5 +368,252 @@ describe("mapSessionName", () => {
     expect(mapSessionName(null)).toBeNull();
     expect(mapSessionName("nope")).toBeNull();
     expect(mapSessionName([])).toBeNull();
+  });
+});
+
+describe("mapFactoryBuildings", () => {
+  it("maps a getFactory entry into a map building, running with a bounding-box footprint", () => {
+    const raw = [
+      {
+        ID: "Build_ConstructorMk1_C_2147415548",
+        Name: "Constructor",
+        ClassName: "Build_ConstructorMk1_C",
+        location: { x: -70700, y: 254500, z: -3599.98, rotation: 90 },
+        IsConfigured: true,
+        IsProducing: true,
+        IsPaused: false,
+        PowerInfo: { CircuitGroupID: 0, CircuitID: 1, FuseTriggered: false },
+        BoundingBox: {
+          min: { x: -71000, y: 254200, z: -3600 },
+          max: { x: -70400, y: 254800, z: -3400 },
+        },
+      },
+    ];
+
+    expect(mapFactoryBuildings(raw)).toEqual([
+      {
+        id: "Build_ConstructorMk1_C_2147415548",
+        className: "Build_ConstructorMk1_C",
+        displayName: "Constructor",
+        transform: { x: -70700, y: 254500, z: -3599.98, rotationDegrees: 90 },
+        footprint: { widthCm: 600, depthCm: 600 },
+        status: "running",
+      },
+    ]);
+  });
+
+  it("reports no-power when the building's own circuit has tripped its fuse, even while paused", () => {
+    const raw = [
+      {
+        ID: "b1",
+        ClassName: "Build_ConstructorMk1_C",
+        location: { x: 0, y: 0, z: 0 },
+        IsConfigured: true,
+        IsProducing: false,
+        IsPaused: true,
+        PowerInfo: { FuseTriggered: true },
+      },
+    ];
+    expect(mapFactoryBuildings(raw)[0]?.status).toBe("no-power");
+  });
+
+  it("reports no-power for a machine that isn't wired to any circuit, even though its fuse never tripped", () => {
+    // FRM documents CircuitID/CircuitGroupID of -1 as "not connected" — a
+    // building placed but never wired to a power line has no circuit for a
+    // fuse to trip on at all, so FuseTriggered alone would misreport it idle.
+    const raw = [
+      {
+        ID: "b1",
+        ClassName: "Build_ConstructorMk1_C",
+        location: { x: 0, y: 0, z: 0 },
+        IsConfigured: true,
+        IsProducing: false,
+        PowerInfo: { CircuitGroupID: -1, CircuitID: -1, FuseTriggered: false },
+      },
+    ];
+    expect(mapFactoryBuildings(raw)[0]?.status).toBe("no-power");
+  });
+
+  it("reports idle for a configured machine that is neither producing nor unpowered", () => {
+    const raw = [
+      {
+        ID: "b1",
+        ClassName: "Build_ConstructorMk1_C",
+        location: { x: 0, y: 0, z: 0 },
+        IsConfigured: true,
+        IsProducing: false,
+      },
+    ];
+    expect(mapFactoryBuildings(raw)[0]?.status).toBe("idle");
+  });
+
+  it("falls back to the default footprint when FRM reports no bounding box", () => {
+    const raw = [
+      {
+        ID: "b1",
+        ClassName: "Build_ConstructorMk1_C",
+        location: { x: 0, y: 0, z: 0 },
+        IsConfigured: true,
+      },
+    ];
+    expect(mapFactoryBuildings(raw)[0]?.footprint).toEqual({ widthCm: 800, depthCm: 800 });
+  });
+
+  it("excludes an unconfigured machine, matching mapMachines's population", () => {
+    const raw = [{ ID: "b1", ClassName: "Build_ConstructorMk1_C", location: { x: 0, y: 0, z: 0 } }];
+    expect(mapFactoryBuildings(raw)).toEqual([]);
+  });
+
+  it("drops an entry with no className or no location", () => {
+    expect(mapFactoryBuildings([{ ID: "b1", IsConfigured: true }])).toEqual([]);
+    expect(
+      mapFactoryBuildings([{ ID: "b1", ClassName: "Build_ConstructorMk1_C", IsConfigured: true }]),
+    ).toEqual([]);
+  });
+
+  it("degrades to an empty list on a malformed payload", () => {
+    expect(mapFactoryBuildings(null)).toEqual([]);
+    expect(mapFactoryBuildings("nope")).toEqual([]);
+  });
+});
+
+describe("mapPlayers", () => {
+  it("maps an online getPlayer entry into a player mover", () => {
+    const raw = [
+      {
+        ID: "Char_Player_C_2147452680",
+        Name: "derpierre65",
+        ClassName: "Char_Player_C",
+        location: { x: -57604.68, y: 260436.19, z: -3018.36, rotation: 115.55 },
+        Online: true,
+        PlayerHP: 100,
+        Dead: false,
+      },
+    ];
+
+    expect(mapPlayers(raw)).toEqual([
+      {
+        id: "player-Char_Player_C_2147452680",
+        kind: "player",
+        className: "Char_Player_C",
+        displayName: "derpierre65",
+        transform: { x: -57604.68, y: 260436.19, z: -3018.36, rotationDegrees: 115.55 },
+        footprint: { widthCm: 100, depthCm: 100 },
+      },
+    ]);
+  });
+
+  it("excludes an offline player rather than showing a stale marker", () => {
+    const raw = [{ ID: "p1", Name: "afk", location: { x: 0, y: 0, z: 0 }, Online: false }];
+    expect(mapPlayers(raw)).toEqual([]);
+  });
+
+  it("degrades to an empty list on a malformed payload", () => {
+    expect(mapPlayers(null)).toEqual([]);
+  });
+});
+
+describe("mapVehicles", () => {
+  it("maps a getVehicles entry, preferring VehicleType over the missing Name/ClassName", () => {
+    const raw = [
+      {
+        ID: 0,
+        VehicleType: "Explorer",
+        location: { x: -52341.44, y: -162543.22, z: -904.13, rotation: 313 },
+        Driver: "porisius",
+      },
+    ];
+
+    expect(mapVehicles(raw)).toEqual([
+      {
+        id: "vehicle-0",
+        kind: "vehicle",
+        className: "Explorer",
+        displayName: "Explorer",
+        transform: { x: -52341.44, y: -162543.22, z: -904.13, rotationDegrees: 313 },
+        footprint: { widthCm: 400, depthCm: 800 },
+      },
+    ]);
+  });
+
+  it("falls back to a generic label when neither Name, VehicleType, nor ClassName is present", () => {
+    const raw = [{ ID: 1, location: { x: 0, y: 0, z: 0 } }];
+    expect(mapVehicles(raw)[0]?.displayName).toBe("Vehicle");
+    expect(mapVehicles(raw)[0]?.className).toBe("Unknown");
+  });
+
+  it("prefers ClassName over VehicleType for the class when both are present", () => {
+    const raw = [
+      {
+        ID: 2,
+        ClassName: "BP_Explorer_C",
+        VehicleType: "Explorer",
+        location: { x: 0, y: 0, z: 0 },
+      },
+    ];
+    expect(mapVehicles(raw)[0]?.className).toBe("BP_Explorer_C");
+  });
+
+  it("drops an entry with no location", () => {
+    expect(mapVehicles([{ ID: 0, VehicleType: "Explorer" }])).toEqual([]);
+  });
+});
+
+describe("mapTrains", () => {
+  it("maps a getTrains entry into a train mover", () => {
+    const raw = [
+      {
+        ID: "BP_Train_C_2147339037",
+        Name: "Train",
+        ClassName: "BP_Train_C",
+        location: { x: -92400, y: 231600.21, z: 21100.01, rotation: 0 },
+        Status: "Self-Driving",
+        PowerInfo: { CircuitGroupID: -1, CircuitID: -1, FuseTriggered: false },
+      },
+    ];
+
+    expect(mapTrains(raw)).toEqual([
+      {
+        id: "train-BP_Train_C_2147339037",
+        kind: "train",
+        className: "BP_Train_C",
+        displayName: "Train",
+        transform: { x: -92400, y: 231600.21, z: 21100.01, rotationDegrees: 0 },
+        footprint: { widthCm: 400, depthCm: 2000 },
+      },
+    ]);
+  });
+
+  it("degrades to an empty list on a malformed payload", () => {
+    expect(mapTrains(null)).toEqual([]);
+  });
+});
+
+describe("mapDrones", () => {
+  it("maps a getDrone entry into a drone mover", () => {
+    const raw = [
+      {
+        ID: "BP_DroneTransport_C_2147415346",
+        Name: "Drone",
+        ClassName: "BP_DroneTransport_C",
+        location: { x: -48777.96, y: 252677.7, z: -3190.92, rotation: 90 },
+        CurrentFlyingMode: "None",
+      },
+    ];
+
+    expect(mapDrones(raw)).toEqual([
+      {
+        id: "drone-BP_DroneTransport_C_2147415346",
+        kind: "drone",
+        className: "BP_DroneTransport_C",
+        displayName: "Drone",
+        transform: { x: -48777.96, y: 252677.7, z: -3190.92, rotationDegrees: 90 },
+        footprint: { widthCm: 300, depthCm: 300 },
+      },
+    ]);
+  });
+
+  it("degrades to an empty list on a malformed payload", () => {
+    expect(mapDrones(null)).toEqual([]);
   });
 });

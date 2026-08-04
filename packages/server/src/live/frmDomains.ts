@@ -15,13 +15,23 @@
  * followed-session gating rules — not a domain itself). `getCrateInv` has a
  * domain (death crates) but is deliberately not mapped: death-crate contents
  * stay baseline-only by design (spec, "Followed session and merge rules"), so
- * there's no live counterpart to merge it against. `getTrains` (map movers)
- * has no WorldState domain to land in yet; it arrives with the Tier 1 map
- * (spec, build ticket 8).
+ * there's no live counterpart to merge it against.
+ *
+ * Build 8 (Tier 1 map) adds `getFactory` a second time, mapped to per-instance
+ * building placements rather than the aggregate `machines` rollup, plus four
+ * mover endpoints — `getPlayer`, `getVehicles`, `getTrains`, `getDrone` — none
+ * of which have a baseline counterpart (movers are runtime-only; see
+ * `mapSnapshot.ts`'s doc comment). Every field name below is confirmed
+ * against FRM's own documentation
+ * (github.com/porisius/FicsitRemoteMonitoring/tree/main/docs), the same
+ * verification standard the rest of this module already holds itself to.
  */
 import type {
   MachineRollup,
   MachinesState,
+  MapBuilding,
+  MapMover,
+  MoverKind,
   PowerCircuit,
   PowerState,
   ProductionState,
@@ -279,4 +289,225 @@ export function mapSink(raw: unknown): SinkState {
 export function mapSessionName(raw: unknown): string | null {
   const record = Array.isArray(raw) ? asRecord(raw[0]) : asRecord(raw);
   return stringField(record, "SessionName") ?? null;
+}
+
+/* ---------------------------------------------------------------------------
+ * Tier 1 map (build 8): building placements and live movers.
+ * ------------------------------------------------------------------------- */
+
+/** Every mapped endpoint's `location` object: world placement plus yaw, in
+ *  the same shape FRM documents for `getFactory`, `getPlayer`, `getVehicles`,
+ *  `getTrains` and `getDrone` alike. */
+interface FrmLocation {
+  x: number;
+  y: number;
+  z: number;
+  rotationDegrees: number;
+}
+
+function locationField(record: Record<string, unknown> | undefined): FrmLocation | undefined {
+  const location = asRecord(record?.location);
+  const x = numberField(location, "x");
+  const y = numberField(location, "y");
+  const z = numberField(location, "z");
+  if (x === undefined || y === undefined || z === undefined) return undefined;
+  return { x, y, z, rotationDegrees: numberField(location, "rotation") ?? 0 };
+}
+
+/** `ID` arrives as a string on most endpoints but as a bare number on
+ *  `getVehicles` (confirmed in FRM's own example response) — read either,
+ *  falling back to a positional id rather than dropping the entry: unlike a
+ *  building/mover's *class*, which is fine to drop the entry over, an id is
+ *  only ever used as a React/diff key, so a synthetic one is harmless. */
+function idField(record: Record<string, unknown> | undefined, fallbackIndex: number): string {
+  const value = record?.ID;
+  if (typeof value === "string" && value !== "") return value;
+  if (typeof value === "number") return String(value);
+  return `unknown-${fallbackIndex}`;
+}
+
+/** `BoundingBox.{min,max}.{x,y}` -> a ground-plane footprint, when FRM
+ *  reports one (documented on `getFactory`; not on the mover endpoints,
+ *  which fall back to a fixed per-kind default). */
+function footprintFromBoundingBox(
+  record: Record<string, unknown> | undefined,
+): { widthCm: number; depthCm: number } | undefined {
+  const box = asRecord(record?.BoundingBox);
+  const min = asRecord(box?.min);
+  const max = asRecord(box?.max);
+  const minX = numberField(min, "x");
+  const maxX = numberField(max, "x");
+  const minY = numberField(min, "y");
+  const maxY = numberField(max, "y");
+  if (minX === undefined || maxX === undefined || minY === undefined || maxY === undefined) {
+    return undefined;
+  }
+  return { widthCm: Math.abs(maxX - minX), depthCm: Math.abs(maxY - minY) };
+}
+
+/** Stand-in footprint for a building FRM didn't report a bounding box for —
+ *  same order of magnitude as `extractBaseline.ts`'s baseline default, kept
+ *  as its own constant since the two modules don't share fixtures. */
+const DEFAULT_BUILDING_FOOTPRINT_CM = { widthCm: 800, depthCm: 800 };
+const DEFAULT_PLAYER_FOOTPRINT_CM = { widthCm: 100, depthCm: 100 };
+const DEFAULT_VEHICLE_FOOTPRINT_CM = { widthCm: 400, depthCm: 800 };
+const DEFAULT_TRAIN_FOOTPRINT_CM = { widthCm: 400, depthCm: 2000 };
+const DEFAULT_DRONE_FOOTPRINT_CM = { widthCm: 300, depthCm: 300 };
+
+/** Whether a building's `PowerInfo` reports it as unpowered: either its
+ *  circuit's fuse has tripped, or the building isn't wired to a circuit at
+ *  all. FRM documents `CircuitID`/`CircuitGroupID` of `-1` as "not
+ *  connected" — a building placed but never wired to a power line reports
+ *  `FuseTriggered: false` (there's no circuit for a fuse to trip on), so
+ *  `FuseTriggered` alone misses this case entirely and would misclassify a
+ *  disconnected building as merely `idle`. */
+function isUnpowered(powerInfo: Record<string, unknown> | undefined): boolean {
+  if (booleanField(powerInfo, "FuseTriggered") ?? false) return true;
+  const circuitId = numberField(powerInfo, "CircuitID");
+  const circuitGroupId = numberField(powerInfo, "CircuitGroupID");
+  return circuitId === -1 || circuitGroupId === -1;
+}
+
+/**
+ * `getFactory` -> the map's buildings layer (a second, per-instance mapping
+ * of the same endpoint {@link mapMachines} aggregates). `status` is the one
+ * thing this build's baseline extraction can never know: `no-power` when the
+ * building is unpowered (see {@link isUnpowered}), `running` while actually
+ * producing, `idle` otherwise (paused, or configured but starved/stopped).
+ * An unconfigured machine — no recipe set — is excluded, mirroring
+ * `mapMachines`'s own exclusion and keeping the map's building population
+ * identical to the machines domain's.
+ */
+export function mapFactoryBuildings(raw: unknown): MapBuilding[] {
+  const buildings = asArray(raw).flatMap((item, index): MapBuilding[] => {
+    const record = asRecord(item);
+    if (!(booleanField(record, "IsConfigured") ?? false)) return [];
+
+    const className = stringField(record, "ClassName");
+    const location = locationField(record);
+    if (!className || !location) return [];
+
+    const unpowered = isUnpowered(asRecord(record?.PowerInfo));
+    const producing = booleanField(record, "IsProducing") ?? false;
+
+    return [
+      {
+        id: idField(record, index),
+        className,
+        displayName: stringField(record, "Name") ?? className,
+        transform: location,
+        footprint: footprintFromBoundingBox(record) ?? DEFAULT_BUILDING_FOOTPRINT_CM,
+        status: unpowered ? "no-power" : producing ? "running" : "idle",
+      },
+    ];
+  });
+
+  buildings.sort((a, b) => a.id.localeCompare(b.id));
+  return buildings;
+}
+
+/** What distinguishes one mover endpoint's mapping from another's — the
+ *  shape every `map<Kind>s` function below shares (spec, Tier 1 map: "every
+ *  map entity ships as `class + transform + footprint`" — `classNameOf`
+ *  exists so `getVehicles`' odd `VehicleType`-instead-of-`ClassName` shape
+ *  doesn't leave vehicles as the one mover kind without a class). */
+interface MoverMapping {
+  kind: MoverKind;
+  footprint: { widthCm: number; depthCm: number };
+  fallbackDisplayName: string;
+  fallbackClassName: string;
+  /** Extra per-entry filter (`getPlayer`'s online-only rule); entries not
+   *  passing it are excluded entirely, the same as a missing location. */
+  include?: (record: Record<string, unknown> | undefined) => boolean;
+  /** Overrides the default `stringField(record, "ClassName")` read —
+   *  `getVehicles` doesn't reliably report `ClassName` at all. */
+  classNameOf?: (record: Record<string, unknown> | undefined) => string | undefined;
+  /** Overrides the default `stringField(record, "Name")` read. */
+  displayNameOf?: (record: Record<string, unknown> | undefined) => string | undefined;
+}
+
+/** Maps one mover endpoint's raw entries into `MapMover`s per `mapping`. Ids
+ *  are namespaced by kind (`player-…`, `vehicle-…`) — the four endpoints are
+ *  merged into one `movers` list downstream (`worldStateStore.ts`), and
+ *  without the prefix two different kinds' ids (most likely `getVehicles`'
+ *  bare numeric ones, or two entries that both fell back to `idField`'s
+ *  positional default) can collide and silently overwrite one marker. */
+function mapMovers(raw: unknown, mapping: MoverMapping): MapMover[] {
+  const movers = asArray(raw).flatMap((item, index): MapMover[] => {
+    const record = asRecord(item);
+    if (mapping.include && !mapping.include(record)) return [];
+
+    const location = locationField(record);
+    if (!location) return [];
+
+    return [
+      {
+        id: `${mapping.kind}-${idField(record, index)}`,
+        kind: mapping.kind,
+        className:
+          (mapping.classNameOf ? mapping.classNameOf(record) : stringField(record, "ClassName")) ??
+          mapping.fallbackClassName,
+        displayName:
+          (mapping.displayNameOf ? mapping.displayNameOf(record) : stringField(record, "Name")) ??
+          mapping.fallbackDisplayName,
+        transform: location,
+        footprint: mapping.footprint,
+      },
+    ];
+  });
+
+  movers.sort((a, b) => a.id.localeCompare(b.id));
+  return movers;
+}
+
+/** `getPlayer` -> the map's player movers. Offline players (logged out, but
+ *  still in FRM's last response) are excluded — otherwise a marker would sit
+ *  frozen wherever someone logged off, which is exactly the stale-ghost
+ *  reading the live-only movers domain exists to avoid. */
+export function mapPlayers(raw: unknown): MapMover[] {
+  return mapMovers(raw, {
+    kind: "player",
+    footprint: DEFAULT_PLAYER_FOOTPRINT_CM,
+    fallbackClassName: "Char_Player_C",
+    fallbackDisplayName: "Player",
+    include: (record) => booleanField(record, "Online") ?? false,
+  });
+}
+
+/**
+ * `getVehicles` -> the map's vehicle movers (explorers, tractors, trucks,
+ * factory carts). FRM's documented example response omits `Name`/`ClassName`
+ * in favor of a bare `VehicleType` field, unlike every other endpoint this
+ * module reads — both class and display name fall back through it before a
+ * generic label.
+ */
+export function mapVehicles(raw: unknown): MapMover[] {
+  return mapMovers(raw, {
+    kind: "vehicle",
+    footprint: DEFAULT_VEHICLE_FOOTPRINT_CM,
+    fallbackClassName: "Unknown",
+    fallbackDisplayName: "Vehicle",
+    classNameOf: (record) => stringField(record, "ClassName") ?? stringField(record, "VehicleType"),
+    displayNameOf: (record) => stringField(record, "Name") ?? stringField(record, "VehicleType"),
+  });
+}
+
+/** `getTrains` -> the map's train movers. */
+export function mapTrains(raw: unknown): MapMover[] {
+  return mapMovers(raw, {
+    kind: "train",
+    footprint: DEFAULT_TRAIN_FOOTPRINT_CM,
+    fallbackClassName: "Unknown",
+    fallbackDisplayName: "Train",
+  });
+}
+
+/** `getDrone` -> the map's drone movers. */
+export function mapDrones(raw: unknown): MapMover[] {
+  return mapMovers(raw, {
+    kind: "drone",
+    footprint: DEFAULT_DRONE_FOOTPRINT_CM,
+    fallbackClassName: "Unknown",
+    fallbackDisplayName: "Drone",
+  });
 }

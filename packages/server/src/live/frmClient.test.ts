@@ -68,6 +68,10 @@ const FRM_PUSH: Record<FrmEndpoint, unknown> = {
   getStorageInv: [],
   getCloudInv: [],
   getResourceSink: [],
+  getPlayer: [],
+  getVehicles: [],
+  getTrains: [],
+  getDrone: [],
 };
 
 let sockets: FakeSocket[];
@@ -136,6 +140,10 @@ describe("startFrmClient", () => {
         "getStorageInv",
         "getCloudInv",
         "getResourceSink",
+        "getPlayer",
+        "getVehicles",
+        "getTrains",
+        "getDrone",
       ],
     });
     expect(onStatusChange).toHaveBeenCalledWith("live");
@@ -177,7 +185,7 @@ describe("startFrmClient", () => {
     onData.mockClear();
 
     sockets[0]!.message("not json");
-    sockets[0]!.message(JSON.stringify({ endpoint: "getTrains", data: [] })); // not subscribed
+    sockets[0]!.message(JSON.stringify({ endpoint: "getSwitches", data: [] })); // not subscribed
     sockets[0]!.message(JSON.stringify({ noEndpoint: true }));
 
     expect(onData).not.toHaveBeenCalled();
@@ -264,20 +272,20 @@ describe("startFrmClient", () => {
     };
     start({ pollIntervalMs: 1000, pollTimeoutMs: 60_000 });
 
-    await vi.advanceTimersByTimeAsync(0); // the first tick starts; 7 requests in flight
-    expect(fetchCalls).toHaveLength(7);
+    await vi.advanceTimersByTimeAsync(0); // the first tick starts; 11 requests in flight
+    expect(fetchCalls).toHaveLength(11);
 
     await vi.advanceTimersByTimeAsync(5000); // several interval periods elapse while still pending
     // The interval found a tick already in flight each time and skipped itself,
     // rather than piling up overlapping requests.
-    expect(fetchCalls).toHaveLength(7);
+    expect(fetchCalls).toHaveLength(11);
 
     for (const resolve of pending.splice(0)) resolve(jsonResponse([]));
     await vi.advanceTimersByTimeAsync(0); // the first tick finally settles
 
     fetchCalls = [];
     await vi.advanceTimersByTimeAsync(1000); // the interval is free to run again
-    expect(fetchCalls).toHaveLength(7);
+    expect(fetchCalls).toHaveLength(11);
   });
 
   it("aborts a hung request after the poll timeout, not just stops waiting on it, so a later tick can't pile a second request for the same endpoint on top of it", async () => {
