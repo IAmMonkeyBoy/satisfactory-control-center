@@ -111,6 +111,20 @@ export const docsFixture = [
         mDisplayName: "Particle Enrichment",
         mType: "EST_Milestone",
         mTechTier: "8",
+        mCost:
+          "((ItemClass=\"/Script/Engine.BlueprintGeneratedClass'/Game/FactoryGame/Resource/Parts/IronPlate/Desc_IronPlate.Desc_IronPlate_C'\",Amount=50))",
+      },
+      {
+        ClassName: "Research_Sulfur_1_C",
+        mDisplayName: "Sulfur Research",
+        mType: "EST_MAM",
+        mTechTier: "0",
+      },
+      {
+        ClassName: "Schematic_Alternate_PureIronIngot_C",
+        mDisplayName: "Alternate: Pure Iron Ingot",
+        mType: "EST_Alternate",
+        mTechTier: "0",
       },
     ],
   },

@@ -190,12 +190,62 @@ export function machine(
   };
 }
 
-/** The schematic manager, which records the last milestone worked on. */
-export function schematicManager(lastActiveSchematicPath: string): SaveObjectView {
+/** One entry of `mPaidOffSchematic`: what has been submitted so far toward a
+ *  schematic's cost. */
+export interface SchematicPayOff {
+  schematic: string;
+  items: ItemStack[];
+}
+
+/**
+ * The schematic manager, which records the active/last-worked-on milestone
+ * and, per schematic, how much of its cost has been paid off so far
+ * (`mPaidOffSchematic` — the save's own record of partial HUB submissions).
+ */
+export function schematicManager(options: {
+  activeSchematic?: string;
+  lastActiveSchematic?: string;
+  paidOff?: SchematicPayOff[];
+  purchased?: string[];
+}): SaveObjectView {
+  const properties: Record<string, unknown> = {};
+  if (options.activeSchematic !== undefined) {
+    properties.mActiveSchematic = objectProperty(options.activeSchematic);
+  }
+  if (options.lastActiveSchematic !== undefined) {
+    properties.mLastActiveSchematic = objectProperty(options.lastActiveSchematic);
+  }
+  if (options.purchased && options.purchased.length > 0) {
+    properties.mPurchasedSchematics = {
+      type: "ArrayProperty",
+      values: options.purchased.map((path) => ({ levelName: "", pathName: path })),
+    };
+  }
+  if (options.paidOff && options.paidOff.length > 0) {
+    properties.mPaidOffSchematic = {
+      type: "ArrayProperty",
+      values: options.paidOff.map((payOff) => ({
+        type: "SchematicCost",
+        properties: {
+          Schematic: objectProperty(payOff.schematic),
+          ItemCost: {
+            type: "ArrayProperty",
+            values: payOff.items.map((item) => ({
+              type: "ItemAmount",
+              properties: {
+                ItemClass: objectProperty(itemPath(item.className)),
+                amount: { type: "IntProperty", value: item.count },
+              },
+            })),
+          },
+        },
+      })),
+    };
+  }
   return {
     typePath: "/Game/FactoryGame/Schematics/Progression/BP_SchematicManager.BP_SchematicManager_C",
     instanceName: `${LEVEL}.schematicManager`,
-    properties: { mLastActiveSchematic: objectProperty(lastActiveSchematicPath) },
+    properties,
   };
 }
 
@@ -205,6 +255,61 @@ export function gamePhaseManager(currentPhasePath: string): SaveObjectView {
     typePath: "/Game/FactoryGame/Schematics/Progression/BP_GamePhaseManager.BP_GamePhaseManager_C",
     instanceName: `${LEVEL}.GamePhaseManager`,
     properties: { mCurrentGamePhase: objectProperty(currentPhasePath) },
+  };
+}
+
+/** One entry of `mSavedOngoingResearch`: a MAM research in flight, and how
+ *  many seconds are left — a save stores the remaining time directly, not an
+ *  absolute completion timestamp. Omitting `secondsRemaining` models a save
+ *  version that doesn't record the field at all. */
+export interface OngoingResearch {
+  schematic: string;
+  secondsRemaining?: number;
+}
+
+/**
+ * The research manager, which records in-flight MAM research
+ * (`mSavedOngoingResearch`) and hard drives collected but not yet researched
+ * (`mUnclaimedHardDriveData`).
+ */
+export function researchManager(options: {
+  ongoing?: OngoingResearch[];
+  unclaimedHardDriveCount?: number;
+}): SaveObjectView {
+  const properties: Record<string, unknown> = {};
+  if (options.ongoing && options.ongoing.length > 0) {
+    properties.mSavedOngoingResearch = {
+      type: "ArrayProperty",
+      values: options.ongoing.map((entry) => ({
+        type: "ResearchTime",
+        properties: {
+          ResearchData: {
+            type: "StructProperty",
+            value: {
+              type: "ResearchData",
+              properties: { Schematic: objectProperty(entry.schematic) },
+            },
+          },
+          ...(entry.secondsRemaining !== undefined
+            ? { ResearchCompleteTimestamp: floatProperty(entry.secondsRemaining) }
+            : {}),
+        },
+      })),
+    };
+  }
+  if (options.unclaimedHardDriveCount) {
+    properties.mUnclaimedHardDriveData = {
+      type: "ArrayProperty",
+      values: Array.from({ length: options.unclaimedHardDriveCount }, (_, index) => ({
+        type: "HardDriveData",
+        properties: { HardDriveID: { type: "IntProperty", value: index } },
+      })),
+    };
+  }
+  return {
+    typePath: "/Game/FactoryGame/Recipes/Research/BP_ResearchManager.BP_ResearchManager_C",
+    instanceName: `${LEVEL}.ResearchManager`,
+    properties,
   };
 }
 

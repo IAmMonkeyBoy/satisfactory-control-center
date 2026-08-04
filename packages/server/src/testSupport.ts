@@ -96,7 +96,31 @@ export function sampleWorldState(now: number): WorldState {
     },
     milestones: {
       tag: { source: "baseline", capturedAt: now - 4 * 60 * 1000 },
-      data: { currentMilestone: "Coal Power", spaceElevatorPhase: "Phase 2" },
+      data: {
+        currentMilestone: {
+          className: "Schematic_3-2_C",
+          displayName: "Coal Power",
+          ingredients: [
+            { className: "Desc_Cable_C", displayName: "Cable", amount: 40, targetAmount: 100 },
+            {
+              className: "Desc_IronPlate_C",
+              displayName: "Iron Plate",
+              amount: 100,
+              targetAmount: 100,
+            },
+          ],
+        },
+        spaceElevatorPhase: "Phase 2",
+        activeResearch: [
+          {
+            className: "Research_Caterium_1_C",
+            displayName: "Caterium Research",
+            secondsRemaining: 90,
+          },
+        ],
+        collectibles: { hardDrivesAwaitingResearch: 2, alternateRecipesUnlocked: 7 },
+        playDurationSeconds: 5 * 60 * 60,
+      },
     },
   };
 }

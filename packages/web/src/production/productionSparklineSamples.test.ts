@@ -17,7 +17,16 @@ function worldState(items: WorldState["production"]["data"]["items"]): WorldStat
       tag,
       data: { totalPoints: 0, numCoupons: 0, pointsToNextCoupon: null, percentToNextCoupon: null },
     },
-    milestones: { tag, data: { currentMilestone: null, spaceElevatorPhase: null } },
+    milestones: {
+      tag,
+      data: {
+        currentMilestone: null,
+        spaceElevatorPhase: null,
+        activeResearch: [],
+        collectibles: { hardDrivesAwaitingResearch: 0, alternateRecipesUnlocked: 0 },
+        playDurationSeconds: null,
+      },
+    },
   };
 }
 

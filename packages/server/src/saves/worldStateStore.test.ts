@@ -64,6 +64,15 @@ describe("worldStateStore", () => {
     expect(ws.storage.data.items[0]?.count).toBe(10);
   });
 
+  it("stamps the milestones domain with the save header's play duration", () => {
+    // playDurationSeconds is a header field, not something extractBaseline can
+    // read off a game object, so applyBaseline is what fills it in.
+    const store = createWorldStateStore();
+    store.applyBaseline(baseline(), header({ playDurationSeconds: 4_500 }));
+
+    expect(store.snapshot(5000).milestones.data.playDurationSeconds).toBe(4_500);
+  });
+
   describe("merge precedence", () => {
     let store: WorldStateStore;
 

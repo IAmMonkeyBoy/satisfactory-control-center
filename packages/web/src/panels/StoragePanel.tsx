@@ -4,6 +4,7 @@ import { PanelFrame } from "../alarms/PanelFrame";
 import { formatCoupons, formatLocation, formatPoints, hasBaseline } from "../storage/storageFormat";
 import { useStorageSearch, type StorageSearchStatus } from "../storage/useStorageSearch";
 import { FreshnessTag } from "./FreshnessTag";
+import { Section } from "./Section";
 
 /**
  * Storage/inventory (spec, "Storage/inventory panel"): item-location search
@@ -64,26 +65,6 @@ export function StoragePanel({
         />
       </Section>
     </PanelFrame>
-  );
-}
-
-function Section({
-  title,
-  right,
-  children,
-}: {
-  title: string;
-  right?: JSX.Element;
-  children: JSX.Element;
-}): JSX.Element {
-  return (
-    <div className="mt-3 border-t border-neutral-800 pt-2 first:mt-0 first:border-t-0 first:pt-0">
-      <div className="mb-1.5 flex items-baseline justify-between gap-3">
-        <span className="text-xs uppercase tracking-wider text-neutral-500">{title}</span>
-        {right && <span className="text-xs text-neutral-600">{right}</span>}
-      </div>
-      {children}
-    </div>
   );
 }
 

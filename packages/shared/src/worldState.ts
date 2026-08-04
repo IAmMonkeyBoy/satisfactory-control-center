@@ -162,10 +162,68 @@ export const sinkStateSchema = z.object({
 });
 export type SinkState = z.infer<typeof sinkStateSchema>;
 
-/** Milestones domain — current HUB milestone summary. */
+/**
+ * One ingredient of the currently active HUB milestone, with progress toward
+ * its cost. `amount` is what has been paid off so far (a save tracks partial
+ * milestone payment across sessions — submitting resources at the HUB
+ * terminal persists even before the milestone completes); `targetAmount` is
+ * the full cost, read from static data since a save only ever records what's
+ * been paid, never the recipe-like total it's being paid against.
+ */
+export const milestoneIngredientSchema = z.object({
+  className: z.string(),
+  displayName: z.string(),
+  amount: z.number(),
+  targetAmount: z.number(),
+});
+export type MilestoneIngredient = z.infer<typeof milestoneIngredientSchema>;
+
+/** The HUB milestone resources are currently being sold towards, with
+ *  per-ingredient progress. */
+export const currentMilestoneSchema = z.object({
+  className: z.string(),
+  displayName: z.string(),
+  ingredients: z.array(milestoneIngredientSchema),
+});
+export type CurrentMilestone = z.infer<typeof currentMilestoneSchema>;
+
+/**
+ * One in-flight MAM research: the schematic being researched and how long
+ * until it completes. `secondsRemaining` is null when a save doesn't carry a
+ * timer for this entry (defensive — the field a save's version doesn't
+ * expose stays honestly unknown rather than fabricated).
+ */
+export const activeResearchSchema = z.object({
+  className: z.string(),
+  displayName: z.string(),
+  secondsRemaining: z.number().nullable(),
+});
+export type ActiveResearch = z.infer<typeof activeResearchSchema>;
+
+/** The compact collectibles row: hard drives waiting at the MAM to be
+ *  researched, and alternate recipes already unlocked from past research. */
+export const collectiblesStateSchema = z.object({
+  hardDrivesAwaitingResearch: z.number(),
+  alternateRecipesUnlocked: z.number(),
+});
+export type CollectiblesState = z.infer<typeof collectiblesStateSchema>;
+
+/**
+ * Milestones domain — current HUB milestone with ingredient progress, Space
+ * Elevator phase, in-flight MAM research, and the compact collectibles/
+ * session-stat row (spec, "Milestones summary"). Baseline-only: FRM exposes
+ * no milestone/schematic/research endpoint in this build, so unlike power or
+ * production there is no live variant to prefer — see
+ * `worldStateStore.ts`'s doc comment. `playDurationSeconds` comes from the
+ * save header rather than from any game object, so it stays null until the
+ * store that reads the header stamps it on.
+ */
 export const milestonesStateSchema = z.object({
-  currentMilestone: z.string().nullable(),
+  currentMilestone: currentMilestoneSchema.nullable(),
   spaceElevatorPhase: z.string().nullable(),
+  activeResearch: z.array(activeResearchSchema),
+  collectibles: collectiblesStateSchema,
+  playDurationSeconds: z.number().nullable(),
 });
 export type MilestonesState = z.infer<typeof milestonesStateSchema>;
 

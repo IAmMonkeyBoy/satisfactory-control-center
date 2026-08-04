@@ -243,7 +243,17 @@ export function createWorldStateStore(): WorldStateStore {
       state = {
         ...state,
         followedSessionName: header.sessionName,
-        baseline: { exists: true, capturedAt: header.saveDateTime, domains: baseline },
+        baseline: {
+          exists: true,
+          capturedAt: header.saveDateTime,
+          // playDurationSeconds is a header field, not a game object, so
+          // extractBaseline can't fill it in — stamped on here instead,
+          // where the baseline and its header are both in hand.
+          domains: {
+            ...baseline,
+            milestones: { ...baseline.milestones, playDurationSeconds: header.playDurationSeconds },
+          },
+        },
       };
     },
 
