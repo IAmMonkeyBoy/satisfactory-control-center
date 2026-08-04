@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCoupons, formatLocation, formatPoints } from "./storageFormat.ts";
+import { formatCoupons, formatLocation, formatPoints, hasBaseline } from "./storageFormat.ts";
 
 describe("formatLocation", () => {
   it("rounds each axis to the nearest whole unit", () => {
@@ -18,5 +18,15 @@ describe("formatCoupons", () => {
     expect(formatCoupons(1)).toBe("1 coupon");
     expect(formatCoupons(13)).toBe("13 coupons");
     expect(formatCoupons(0)).toBe("0 coupons");
+  });
+});
+
+describe("hasBaseline", () => {
+  it("is false for the store's epoch-zero sentinel — nothing captured yet", () => {
+    expect(hasBaseline({ source: "baseline", capturedAt: 0 })).toBe(false);
+  });
+
+  it("is true for any real capture time", () => {
+    expect(hasBaseline({ source: "baseline", capturedAt: 1_000 })).toBe(true);
   });
 });

@@ -286,8 +286,12 @@ export function createWorldStateStore(): WorldStateStore {
       const needle = query.trim().toLowerCase();
       const { baseline } = state;
 
+      // Distinct from an empty `matches`: no baseline has ever been captured
+      // for the followed session, so there is nothing to have searched yet —
+      // reporting empty matches here would read as a confident "nothing
+      // holds that item" when the honest answer is "unknown".
       const matches =
-        needle === ""
+        !baseline.exists || needle === ""
           ? []
           : baseline.domains.containers.flatMap((container) =>
               container.items
@@ -308,6 +312,7 @@ export function createWorldStateStore(): WorldStateStore {
 
       return {
         query,
+        available: baseline.exists,
         tag: { source: "baseline", capturedAt: baseline.capturedAt },
         matches,
       };

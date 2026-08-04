@@ -365,13 +365,19 @@ describe("worldStateStore", () => {
 });
 
 describe("searchStorage", () => {
-  it("returns an empty result, baseline-tagged at epoch 0, before any save has been accepted", () => {
+  it("reports unavailable, not merely empty, before any baseline has been accepted", () => {
     const store = createWorldStateStore();
     expect(store.searchStorage("Iron")).toEqual({
       query: "Iron",
+      available: false,
       tag: { source: "baseline", capturedAt: 0 },
       matches: [],
     });
+  });
+
+  it("stays unavailable for a blank query too — there is still nothing to have searched", () => {
+    const store = createWorldStateStore();
+    expect(store.searchStorage("").available).toBe(false);
   });
 
   it("finds every container holding a matching item, with counts and location", () => {
@@ -400,6 +406,7 @@ describe("searchStorage", () => {
     );
 
     const result = store.searchStorage("Iron Plate");
+    expect(result.available).toBe(true);
     expect(result.tag).toEqual({ source: "baseline", capturedAt: 12_000 });
     expect(result.matches).toEqual([
       {
@@ -457,5 +464,29 @@ describe("searchStorage", () => {
     );
 
     expect(store.searchStorage("  ").matches).toEqual([]);
+  });
+
+  it("goes unavailable again after a session reset, even though a baseline existed before", () => {
+    const store = createWorldStateStore();
+    store.applyBaseline(
+      baseline({
+        containers: [
+          {
+            id: "container-1",
+            displayName: "Storage Container",
+            location: { x: 0, y: 0, z: 0 },
+            items: [{ className: "Desc_IronPlate_C", displayName: "Iron Plate", count: 500 }],
+          },
+        ],
+      }),
+      header({ saveDateTime: 1_000 }),
+    );
+    expect(store.searchStorage("Iron").available).toBe(true);
+
+    store.reset();
+
+    const result = store.searchStorage("Iron");
+    expect(result.available).toBe(false);
+    expect(result.matches).toEqual([]);
   });
 });

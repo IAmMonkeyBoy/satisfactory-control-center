@@ -106,6 +106,7 @@ export function sampleWorldState(now: number): WorldState {
 export function sampleStorageSearchResponse(query: string): StorageSearchResponse {
   return {
     query,
+    available: true,
     tag: { source: "baseline", capturedAt: 1000 },
     matches: [
       {

@@ -24,6 +24,14 @@ export type StorageSearchMatch = z.infer<typeof storageSearchMatchSchema>;
 
 export const storageSearchResponseSchema = z.object({
   query: z.string(),
+  /**
+   * Whether a baseline has ever been captured for the currently followed
+   * session — false before the first accepted save (or right after a session
+   * reset). Distinct from `matches` being empty: `available: false` means
+   * "nothing has been searched yet," not "searched and found nothing," so
+   * the UI must not render the latter as a negative result of the former.
+   */
+  available: z.boolean(),
   tag: sourceAgeTagSchema,
   matches: z.array(storageSearchMatchSchema),
 });

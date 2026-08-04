@@ -1,14 +1,8 @@
 import type { JSX } from "react";
-import type {
-  DeathCrate,
-  SourceAgeTag,
-  StorageItem,
-  StorageSearchMatch,
-  WorldState,
-} from "@scc/shared";
+import type { DeathCrate, StorageItem, StorageSearchResponse, WorldState } from "@scc/shared";
 import { PanelFrame } from "../alarms/PanelFrame";
-import { formatCoupons, formatLocation, formatPoints } from "../storage/storageFormat";
-import { useStorageSearch } from "../storage/useStorageSearch";
+import { formatCoupons, formatLocation, formatPoints, hasBaseline } from "../storage/storageFormat";
+import { useStorageSearch, type StorageSearchStatus } from "../storage/useStorageSearch";
 import { FreshnessTag } from "./FreshnessTag";
 
 /**
@@ -30,15 +24,22 @@ export function StoragePanel({
   now: number;
   className?: string;
 }): JSX.Element {
-  const search = useStorageSearch();
+  // Identifies which followed session/baseline the search index reflects —
+  // `deathCrates.tag` is always the store's baseline tag (see its doc
+  // comment below), so its `capturedAt` doubles as "the current baseline's
+  // capture time" without reaching into store internals. A change here
+  // (a session reset, or a newer save landing) invalidates the current
+  // search result immediately (see `useStorageSearch`'s doc comment).
+  const sourceKey = `${worldState.followedSession?.sessionName ?? ""}:${worldState.deathCrates.tag.capturedAt}`;
+  const search = useStorageSearch(sourceKey);
 
   return (
     <PanelFrame title="Storage" className={className}>
       <SearchSection
         query={search.query}
         setQuery={search.setQuery}
-        matches={search.result?.matches ?? null}
-        tag={search.result?.tag}
+        status={search.status}
+        result={search.result}
         now={now}
       />
 
@@ -50,7 +51,10 @@ export function StoragePanel({
         title="Death crates"
         right={<FreshnessTag tag={worldState.deathCrates.tag} now={now} />}
       >
-        <DeathCrateList crates={worldState.deathCrates.data.crates} />
+        <DeathCrateList
+          crates={worldState.deathCrates.data.crates}
+          baselineKnown={hasBaseline(worldState.deathCrates.tag)}
+        />
       </Section>
 
       <Section title="AWESOME Sink" right={<FreshnessTag tag={worldState.sink.tag} now={now} />}>
@@ -86,18 +90,21 @@ function Section({
 function SearchSection({
   query,
   setQuery,
-  matches,
-  tag,
+  status,
+  result,
   now,
 }: {
   query: string;
   setQuery: (query: string) => void;
-  matches: StorageSearchMatch[] | null;
-  tag: SourceAgeTag | undefined;
+  status: StorageSearchStatus;
+  result: StorageSearchResponse | null;
   now: number;
 }): JSX.Element {
   return (
-    <Section title="Find an item" right={tag ? <FreshnessTag tag={tag} now={now} /> : undefined}>
+    <Section
+      title="Find an item"
+      right={result ? <FreshnessTag tag={result.tag} now={now} /> : undefined}
+    >
       <div className="space-y-2">
         <input
           type="text"
@@ -108,28 +115,47 @@ function SearchSection({
         />
         {query.trim() !== "" && (
           <ul className="max-h-40 space-y-1 overflow-y-auto text-sm">
-            {matches === null ? (
-              <li className="text-neutral-600">Searching…</li>
-            ) : matches.length === 0 ? (
-              <li className="text-neutral-600">No containers hold that item.</li>
-            ) : (
-              matches.map((match, index) => (
-                <li key={`${match.containerId}-${match.itemClassName}-${index}`}>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-neutral-200" title={match.containerDisplayName}>
-                      {match.itemDisplayName} × {match.count.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="text-xs text-neutral-600">
-                    {match.containerDisplayName} · {formatLocation(match.location)}
-                  </div>
-                </li>
-              ))
-            )}
+            <SearchResults status={status} result={result} />
           </ul>
         )}
       </div>
     </Section>
+  );
+}
+
+function SearchResults({
+  status,
+  result,
+}: {
+  status: StorageSearchStatus;
+  result: StorageSearchResponse | null;
+}): JSX.Element {
+  if (status === "searching") return <li className="text-neutral-600">Searching…</li>;
+  if (status === "error") return <li className="text-neutral-600">Search failed — try again.</li>;
+  if (!result) return <></>;
+
+  if (!result.available) {
+    return <li className="text-neutral-600">No save loaded yet — search needs a baseline.</li>;
+  }
+  if (result.matches.length === 0) {
+    return <li className="text-neutral-600">No containers hold that item.</li>;
+  }
+
+  return (
+    <>
+      {result.matches.map((match, index) => (
+        <li key={`${match.containerId}-${match.itemClassName}-${index}`}>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate text-neutral-200" title={match.containerDisplayName}>
+              {match.itemDisplayName} × {match.count.toLocaleString()}
+            </span>
+          </div>
+          <div className="text-xs text-neutral-600">
+            {match.containerDisplayName} · {formatLocation(match.location)}
+          </div>
+        </li>
+      ))}
+    </>
   );
 }
 
@@ -148,9 +174,19 @@ function DepotItems({ items }: { items: StorageItem[] }): JSX.Element {
   );
 }
 
-function DeathCrateList({ crates }: { crates: DeathCrate[] }): JSX.Element {
+function DeathCrateList({
+  crates,
+  baselineKnown,
+}: {
+  crates: DeathCrate[];
+  baselineKnown: boolean;
+}): JSX.Element {
   if (crates.length === 0) {
-    return <p className="text-sm text-neutral-600">No death crates on the map.</p>;
+    return (
+      <p className="text-sm text-neutral-600">
+        {baselineKnown ? "No death crates on the map." : "Not yet known — waiting for a save."}
+      </p>
+    );
   }
 
   return (
