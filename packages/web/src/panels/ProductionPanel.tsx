@@ -2,6 +2,7 @@ import { useMemo, type JSX } from "react";
 import type { MachineRollup, ProductionItem, WorldState } from "@scc/shared";
 import { PanelFrame } from "../alarms/PanelFrame";
 import { usePanelAlarms } from "../alarms/usePanelAlarms";
+import { CodexTrigger } from "../codex/CodexTrigger";
 import { optionalValue } from "../format";
 import { productionAlarms } from "../production/productionAlarms";
 import { formatPerMin, notableItems } from "../production/productionItems";
@@ -86,9 +87,14 @@ function ProductionItemCard({
 
   return (
     <div className="w-36 flex-none border-l-2 border-neutral-800 pl-2">
-      <div className="truncate text-xs text-neutral-300" title={item.displayName}>
+      <CodexTrigger
+        kind="item"
+        gameClassName={item.className}
+        className="block w-full truncate text-left text-xs text-neutral-300"
+        title={item.displayName}
+      >
         {item.displayName}
-      </div>
+      </CodexTrigger>
       {rate.length > 1 && (
         <div className="my-1">
           <Sparkline width={130} height={22} series={[{ series: rate, color: "#f2a33c" }]} />
@@ -111,7 +117,13 @@ function MachineRollupChip({ machine }: { machine: MachineRollup }): JSX.Element
     <div
       className={`rounded border px-2 py-1 text-xs ${stalled ? "border-alarm-critical" : "border-neutral-800"}`}
     >
-      <div className="text-neutral-300">{machine.displayName}</div>
+      <CodexTrigger
+        kind="building"
+        gameClassName={machine.className}
+        className="block text-left text-neutral-300"
+      >
+        {machine.displayName}
+      </CodexTrigger>
       <div className="text-neutral-500">
         {machine.producingCount === null
           ? `${machine.totalCount} installed`

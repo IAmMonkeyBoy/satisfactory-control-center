@@ -1,6 +1,7 @@
 import { useState, type JSX, type ReactNode } from "react";
 import type { WorldState } from "@scc/shared";
 import { AlarmBanner } from "../alarms/AlarmBanner";
+import { CodexPopover } from "../codex/CodexPopover";
 import { MapLayerToggles } from "../map/MapLayerToggles";
 import type { MapLayerVisibility } from "../map/MapScene";
 import { CodexNavSlot } from "../panels/CodexNavSlot";
@@ -42,6 +43,7 @@ export function MapDeck({
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-metal-950 text-neutral-100">
       <MapSlot layers={mapLayers} />
+      <CodexPopover />
 
       {/* pointer-events-none so the empty space in this overlay (the middle
           spacer between the panel columns, the gaps around the top bar) lets

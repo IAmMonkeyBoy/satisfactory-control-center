@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { findDocsFile, findSaveDirectory } from "./gameFiles.ts";
+import { findDocsFile, findIconsDirectory, findSaveDirectory } from "./gameFiles.ts";
 
 let root: string;
 const originalEnv = { ...process.env };
@@ -11,6 +11,7 @@ beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "scc-install-"));
   delete process.env.SCC_SAVE_DIR;
   delete process.env.SCC_DOCS_FILE;
+  delete process.env.SCC_ICONS_DIR;
   delete process.env.LOCALAPPDATA;
 });
 
@@ -91,5 +92,23 @@ describe("findDocsFile", () => {
     process.env["ProgramFiles(x86)"] = root;
 
     expect(await findDocsFile()).toBe(docs);
+  });
+});
+
+describe("findIconsDirectory", () => {
+  it("uses the override", async () => {
+    process.env.SCC_ICONS_DIR = root;
+
+    expect(await findIconsDirectory()).toBe(root);
+  });
+
+  it("reports nothing when unconfigured — icon extraction is a manual step", async () => {
+    expect(await findIconsDirectory()).toBeNull();
+  });
+
+  it("reports nothing when the override points somewhere that isn't there", async () => {
+    process.env.SCC_ICONS_DIR = path.join(root, "nope");
+
+    expect(await findIconsDirectory()).toBeNull();
   });
 });

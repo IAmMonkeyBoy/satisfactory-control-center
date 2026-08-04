@@ -30,6 +30,9 @@ export interface DocsEntry {
 export interface ItemInfo {
   className: string;
   displayName: string;
+  /** The dump's flavor text, or null where the class carries none — a
+   *  creature or resource-node stub, say, that never gets a description. */
+  description: string | null;
   /** True for fluids and gases, whose amounts the dump scales by 1000. */
   isFluid: boolean;
 }
@@ -55,6 +58,7 @@ export interface RecipeInfo {
 export interface BuildingInfo {
   className: string;
   displayName: string;
+  description: string | null;
   /** Rated draw at 100%; 0 for buildings that consume nothing. */
   powerConsumptionMW: number;
   /** Rated output at 100%; 0 for anything that is not a generator. */
@@ -117,6 +121,7 @@ export class StaticData {
     return {
       className: entry.className,
       displayName: asString(entry.fields.mDisplayName) ?? entry.className,
+      description: nonEmpty(asString(entry.fields.mDescription)),
       isFluid: isFluidForm(asString(entry.fields.mForm)),
     };
   }
@@ -142,6 +147,7 @@ export class StaticData {
     return {
       className: entry.className,
       displayName: asString(entry.fields.mDisplayName) ?? entry.className,
+      description: nonEmpty(asString(entry.fields.mDescription)),
       powerConsumptionMW: asNumber(entry.fields.mPowerConsumption) ?? 0,
       powerProductionMW: asNumber(entry.fields.mPowerProduction) ?? 0,
     };
@@ -158,6 +164,44 @@ export class StaticData {
       // parseAmounts still gets the ItemClass/Amount decoding for free.
       cost: this.parseAmounts(asString(entry.fields.mCost), 0),
     };
+  }
+
+  /**
+   * Every recipe in the dump, decoded once and cached — the codex popover's
+   * two reverse lookups below (by product, by producing building) would
+   * otherwise re-scan and re-decode the whole entry map on every call.
+   * Lazy rather than built in the constructor: most server startups never
+   * touch a single recipe (extraction looks classes up directly), so paying
+   * this only when a codex lookup actually needs it keeps startup cheap.
+   */
+  private recipesCache: RecipeInfo[] | null = null;
+
+  private allRecipes(): RecipeInfo[] {
+    if (!this.recipesCache) {
+      const recipes: RecipeInfo[] = [];
+      for (const className of this.entries.keys()) {
+        const recipe = this.recipe(className);
+        if (recipe) recipes.push(recipe);
+      }
+      this.recipesCache = recipes;
+    }
+    return this.recipesCache;
+  }
+
+  /** Recipes whose products include this item — "how do I make this" (codex
+   *  popover, kind "item"). */
+  recipesProducing(classNameOrPath: string): RecipeInfo[] {
+    const className = classNameFromPath(classNameOrPath);
+    return this.allRecipes().filter((recipe) =>
+      recipe.products.some((product) => product.className === className),
+    );
+  }
+
+  /** Recipes this building can run — "what can this make" (codex popover,
+   *  kind "building"). */
+  recipesProducedIn(classNameOrPath: string): RecipeInfo[] {
+    const className = classNameFromPath(classNameOrPath);
+    return this.allRecipes().filter((recipe) => recipe.producedIn.includes(className));
   }
 
   private field(classNameOrPath: string, name: string): string | undefined {
@@ -240,6 +284,12 @@ function isFluidForm(form: string | undefined): boolean {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+/** A dump string field, or null when absent/blank — the codex popover's
+ *  honest "no description" rather than an empty paragraph. */
+function nonEmpty(value: string | undefined): string | null {
+  return value === undefined || value === "" ? null : value;
 }
 
 function asNumber(value: unknown): number | undefined {

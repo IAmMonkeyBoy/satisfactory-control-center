@@ -1,6 +1,7 @@
 import { useMemo, type JSX } from "react";
 import { useAlarmContext } from "../alarms/AlarmContext";
 import { usePanelAlarms } from "../alarms/usePanelAlarms";
+import { useCodexContext } from "../codex/CodexContext";
 import { mapAlarms } from "../map/mapAlarms";
 import { MapScene, type MapLayerVisibility } from "../map/MapScene";
 import { useMapSnapshot } from "../map/useMapSnapshot";
@@ -19,6 +20,7 @@ import { useMapSnapshot } from "../map/useMapSnapshot";
 export function MapSlot({ layers }: { layers: MapLayerVisibility }): JSX.Element {
   const mapSnapshot = useMapSnapshot();
   const { activeAlarms } = useAlarmContext();
+  const { open } = useCodexContext();
 
   // The map is itself a source of alarms (no-power buildings), not just a
   // renderer of alarms other panels raise — see mapAlarms.ts. Registering
@@ -29,7 +31,12 @@ export function MapSlot({ layers }: { layers: MapLayerVisibility }): JSX.Element
 
   return (
     <div className="absolute inset-0 bg-metal-950">
-      <MapScene mapSnapshot={mapSnapshot} alarms={activeAlarms} layers={layers} />
+      <MapScene
+        mapSnapshot={mapSnapshot}
+        alarms={activeAlarms}
+        layers={layers}
+        onBuildingClick={(building) => open("building", building.className)}
+      />
     </div>
   );
 }

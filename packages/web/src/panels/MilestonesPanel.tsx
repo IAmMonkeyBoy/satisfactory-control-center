@@ -6,6 +6,7 @@ import type {
   WorldState,
 } from "@scc/shared";
 import { PanelFrame } from "../alarms/PanelFrame";
+import { CodexTrigger } from "../codex/CodexTrigger";
 import { formatDuration } from "../format";
 import {
   formatAlternates,
@@ -103,7 +104,13 @@ function IngredientProgress({ ingredient }: { ingredient: MilestoneIngredient })
   return (
     <li>
       <div className="flex items-baseline justify-between gap-2 text-sm">
-        <span className="truncate text-neutral-300">{ingredient.displayName}</span>
+        <CodexTrigger
+          kind="item"
+          gameClassName={ingredient.className}
+          className="truncate text-left text-neutral-300"
+        >
+          {ingredient.displayName}
+        </CodexTrigger>
         <span className={complete ? "text-neutral-500" : "text-neutral-300"}>
           {ingredient.amount.toLocaleString()} / {ingredient.targetAmount.toLocaleString()}
         </span>
