@@ -155,19 +155,23 @@ function DeathCrateList({ crates }: { crates: DeathCrate[] }): JSX.Element {
 
   return (
     <ul className="space-y-2 text-sm">
-      {crates.map((crate) => {
-        const totalItems = crate.items.reduce((sum, item) => sum + item.count, 0);
-        return (
-          <li key={crate.id} className="border-l-2 border-alarm-warning pl-2">
-            <div className="text-neutral-300">{formatLocation(crate.location)}</div>
-            <div className="text-xs text-neutral-600">
-              {crate.items.length === 0
-                ? "empty"
-                : `${crate.items.length} item${crate.items.length === 1 ? "" : "s"}, ${totalItems.toLocaleString()} total`}
-            </div>
-          </li>
-        );
-      })}
+      {crates.map((crate) => (
+        <li key={crate.id} className="border-l-2 border-alarm-warning pl-2">
+          <div className="text-neutral-300">{formatLocation(crate.location)}</div>
+          {crate.items.length === 0 ? (
+            <div className="text-xs text-neutral-600">empty</div>
+          ) : (
+            <ul className="text-xs text-neutral-500">
+              {crate.items.map((item) => (
+                <li key={item.className} className="flex items-baseline justify-between gap-2">
+                  <span className="truncate">{item.displayName}</span>
+                  <span>{item.count.toLocaleString()}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </li>
+      ))}
     </ul>
   );
 }
